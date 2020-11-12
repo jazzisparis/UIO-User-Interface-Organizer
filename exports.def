@@ -1,0 +1,4 @@
+LIBRARY	"ui_organizer"
+EXPORTS
+NVSEPlugin_Query		@1
+NVSEPlugin_Load			@2
