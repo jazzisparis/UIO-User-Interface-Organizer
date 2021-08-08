@@ -1,25 +1,5 @@
 #include "gameapi.h"
 
-extern UInt32 kHeapAllocAddr, kHeapFreeAddr, kAddrSub43A010;
-
-__declspec(naked) void* __stdcall GameHeapAlloc(UInt32 size)
-{
-	__asm
-	{
-		mov		ecx, 0x11F6238
-		jmp		kHeapAllocAddr
-	}
-}
-
-__declspec(naked) void __stdcall GameHeapFree(void *ptr)
-{
-	__asm
-	{
-		mov		ecx, 0x11F6238
-		jmp		kHeapFreeAddr
-	}
-}
-
 __declspec(naked) void String::Set(const char *src)
 {
 	__asm
@@ -40,9 +20,9 @@ __declspec(naked) void String::Set(const char *src)
 		test	ecx, ecx
 		jz		doAlloc
 		push	ecx
-		call	GameHeapFree
+		GAME_HEAP_FREE
 	doAlloc:
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		mov		[esi], eax
 		mov		ecx, eax
 		movzx	eax, word ptr [esi+4]
@@ -68,7 +48,7 @@ __declspec(naked) void String::Set(const char *src)
 		jz		done
 		mov		dword ptr [esi], 0
 		push	eax
-		call	GameHeapFree
+		GAME_HEAP_FREE
 	done:
 		pop		esi
 		retn	4
@@ -141,7 +121,7 @@ __declspec(naked) bool NiTMap::Insert(UInt32 key, Entry **outEntry)
 		xor		al, al
 		jmp		done
 	notFound:
-		call	kAddrSub43A010
+		CALL_EAX(0x43A010)
 		mov		edi, eax
 		mov		dword ptr [eax+8], 0
 		mov		ecx, [ebp+8]
@@ -151,7 +131,7 @@ __declspec(naked) bool NiTMap::Insert(UInt32 key, Entry **outEntry)
 		inc		eax
 		push	eax
 		push	eax
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		push	dword ptr [ebp+8]
 		push	eax
 		call	_memcpy
@@ -172,9 +152,44 @@ __declspec(naked) bool NiTMap::Insert(UInt32 key, Entry **outEntry)
 		mov		[edx], edi
 		pop		edi
 		pop		esi
-		mov		esp, ebp
-		pop		ebp
+		leave
 		retn	8
+	}
+}
+
+__declspec(naked) TileValue* __fastcall GetTileValue(Tile *tile, UInt32 typeID)
+{
+	__asm
+	{
+		push	ebx
+		push	esi
+		push	edi
+		mov		ebx, [ecx+0x14]
+		xor		esi, esi
+		mov		edi, [ecx+0x18]
+		ALIGN 16
+	iterHead:
+		cmp		esi, edi
+		jz		iterEnd
+		lea		ecx, [esi+edi]
+		shr		ecx, 1
+		mov		eax, [ebx+ecx*4]
+		cmp		[eax], edx
+		jz		done
+		jb		isLT
+		mov		edi, ecx
+		jmp		iterHead
+		ALIGN 16
+	isLT:
+		lea		esi, [ecx+1]
+		jmp		iterHead
+	iterEnd:
+		xor		eax, eax
+	done:
+		pop		edi
+		pop		esi
+		pop		ebx
+		retn
 	}
 }
 
@@ -185,7 +200,7 @@ bool DataHandler::IsModLoaded(const char *modName)
 	do
 	{
 		modInfo = traverse->data;
-		if (modInfo && StrEqualCI(modInfo->name, modName))
+		if (modInfo && !StrCompare(modInfo->name, modName))
 			return true;
 	}
 	while (traverse = traverse->next);

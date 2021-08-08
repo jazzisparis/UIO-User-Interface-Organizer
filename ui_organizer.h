@@ -4,16 +4,6 @@
 #include "containers.h"
 #include "gameapi.h"
 
-UInt32
-kHeapAllocAddr =			0xAA3E40,
-kHeapFreeAddr =				0xAA4060,
-kInitInterfaceMngrAddr =	0x70A130,
-kAddrSub43A010 =			0x43A010,
-kAddrSubA0AC80 =			0xA0AC80,
-kAddrSubA0AE70 =			0xA0AE70,
-kAddrSubA0AF10 =			0xA0AF10,
-kAddrSubAE8010 =			0xAE8010;
-
 struct XMLFileData
 {
 	UInt32		length;
@@ -26,11 +16,10 @@ struct XMLFileData
 	}
 };
 
-typedef XMLFileData* (*_GetXMLFileData)(const char *filePath, UInt32);
-_GetXMLFileData GetXMLFileData = (_GetXMLFileData)0xA1CE70;
-
-typedef bool (*_ResolveIncludes)(XMLFileData *fileData);
-_ResolveIncludes ResolveIncludes = (_ResolveIncludes)0xA02D40;
+__forceinline XMLFileData *GetXMLFileData(const char *filePath)
+{
+	return CdeclCall<XMLFileData*>(0xA1CE70, filePath, 0);
+}
 
 struct CacheOffset
 {
@@ -137,7 +126,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		mov		esi, [eax+4]
 		lea		eax, [esi+1]
 		push	eax
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		mov		edi, eax
 		push	esi
 		push	eax
@@ -150,7 +139,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 	notCached:
 		push	0
 		push	dword ptr [ebp+8]
-		call	GetXMLFileData
+		CALL_EAX(0xA1CE70)
 		add		esp, 8
 		test	eax, eax
 		jz		createData
@@ -180,14 +169,13 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		jmp		done
 	createData:
 		push	8
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		mov		[eax], esi
 		mov		[eax+4], edi
 	done:
 		pop		edi
 		pop		esi
-		mov		esp, ebp
-		pop		ebp
+		leave
 		retn
 	}
 }
@@ -207,8 +195,8 @@ __declspec(naked) void __fastcall FreeExtraString(void *xString)
 	doFree:
 		push	dword ptr [ecx+8]
 		push	ecx
-		call	GameHeapFree
-		call	GameHeapFree
+		GAME_HEAP_FREE
+		GAME_HEAP_FREE
 		retn
 	}
 }
@@ -219,11 +207,11 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 	{
 		push	ebp
 		mov		ebp, esp
-		sub		esp, 0x1C
 		mov		eax, [ecx+0xC]
 		test	eax, eax
 		cmovz	eax, [ecx]
-		mov		[ebp-4], eax
+		push	eax
+		sub		esp, 0x18
 		cmp		s_debugPrint, 0
 		jz		skipLog
 		lea		ecx, [ebp+8]
@@ -233,7 +221,8 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		cmp		[ebp+0x10], 3
 		cmovz	eax, [ebp+0xC]
 		mov		[ebp-0x1C], eax
-		cvtsi2ss	xmm0, eax
+		movd	xmm0, eax
+		cvtdq2ps	xmm0, xmm0
 		movd	[ebp-8], xmm0
 		mov		eax, 0x11F32DC
 		mov		edx, [eax]
@@ -245,7 +234,7 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		jmp		fillValues
 	arrEmpty:
 		push	0x14
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		mov		ecx, eax
 		xor		edx, edx
 		mov		[ecx+8], edx
@@ -272,7 +261,7 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		mov		[ecx+8], edx
 		mov		[ecx+0xC], edx
 		push	eax
-		call	GameHeapFree
+		GAME_HEAP_FREE
 		jmp		doneStr
 	notNumeric:
 		push	eax
@@ -316,19 +305,20 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		cmp		dword ptr [ecx+0xC], 0
 		jnz		jmpLbl_18
 		push	dword ptr [ebp+0xC]
-		call	kAddrSubA0AF10
+		CALL_EAX(0xA0AF10)
 		mov		ecx, [ebp-0x1C]
 		mov		[ecx+0xC], eax
 		test	eax, eax
 		jnz		jmpLbl_18
 		push	dword ptr [ebp+0xC]
 		mov		ecx, [ebp-0x1C]
-		call	kAddrSubA0AE70
+		CALL_EAX(0xA0AE70)
 		mov		ecx, [ebp-0x1C]
 		mov		[ecx+0xC], eax
 		jmp		jmpLbl_18
 	jmpLbl_1:
-		cvttss2si	edx, dword ptr [eax+4]
+		movss	xmm0, [eax+4]
+		cvttss2si	edx, xmm0
 		cmp		edx, 0x385
 		jl		jmpLbl_2
 		cmp		edx, 0x38C
@@ -378,7 +368,8 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		mov		eax, [ebp-0xC]
 		cmp		dword ptr [eax+0x10], 0x2710
 		jge		jmpLbl_6
-		cvttss2si	edx, dword ptr [eax+4]
+		movss	xmm0, [eax+4]
+		cvttss2si	edx, xmm0
 		cmp		edx, 0xFA1
 		jl		jmpLbl_7
 		cmp		edx, 0x101D
@@ -389,14 +380,15 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 	jmpLbl_7:
 		cmp		edx, 0x7D0
 		jl		jmpLbl_8
-		cmp		edx, 0x7E9
+		cmp		edx, 0x7F5
 		jg		jmpLbl_8
 		mov     dword ptr [ecx], 9
 		jmp		jmpLbl_9
 	jmpLbl_8:
 		mov     dword ptr [ecx], 0xFFFFFFFF
 	jmpLbl_9:
-		cvttss2si	edx, dword ptr [ecx+4]
+		movss	xmm0, [ecx+4]
+		cvttss2si	edx, xmm0
 		mov		[ecx+0x10], edx
 		mov		eax, [ebp-0x10]
 		mov		edx, [eax+4]
@@ -423,7 +415,8 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		cmp		edx, [ebp-8]
 		jnz		jmpLbl_11
 		mov		dword ptr [ecx], 0xA
-		cvttss2si	edx, dword ptr [ecx+4]
+		movss	xmm0, [ecx+4]
+		cvttss2si	edx, xmm0
 		mov		[ecx+0x10], edx
 		mov		eax, [ebp-0x10]
 		mov		edx, [eax+4]
@@ -434,7 +427,7 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		call	String::Set
 		mov		ecx, [ebp-4]
 		add		ecx, 8
-		call	kAddrSubAE8010
+		CALL_EAX(0xAE8010)
 		mov		ecx, eax
 		call	FreeExtraString
 		jmp		jmpLbl_18
@@ -461,7 +454,7 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 	jmpLbl_14:
 		cmp		edx, 0x7D0
 		jl		jmpLbl_16
-		cmp		edx, 0x7E9
+		cmp		edx, 0x7F5
 		jg		jmpLbl_16
 		test	eax, eax
 		jnz		jmpLbl_15
@@ -475,7 +468,8 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 	jmpLbl_16:
 		test	eax, eax
 		jz		jmpLbl_17
-		cvttss2si	edx, dword ptr [ecx+4]
+		movss	xmm0, [ecx+4]
+		cvttss2si	edx, xmm0
 		cmp		edx, 0x385
 		jl		jmpLbl_17
 		cmp		edx, 0x38C
@@ -485,7 +479,7 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 		mov		ecx, [ebp-4]
 		add		ecx, 8
 		mov		[ebp-0x1C], ecx
-		call	kAddrSub43A010
+		CALL_EAX(0x43A010)
 		mov		ecx, [ebp-0xC]
 		mov		[eax+8], ecx
 		mov		ecx, [ebp-0x1C]
@@ -502,14 +496,13 @@ __declspec(naked) void __stdcall ResolveTrait(UInt32 valueType, const char *valu
 	jmpLbl_18:
 		mov		ecx, [ebp-4]
 		add		ecx, 8
-		call	kAddrSubAE8010
+		CALL_EAX(0xAE8010)
 		mov		ecx, eax
 		call	FreeExtraString
 		mov		ecx, [ebp-0xC]
 		call	FreeExtraString
 	done:
-		mov		esp, ebp
-		pop		ebp
+		leave
 		retn	0xC
 	}
 }
@@ -565,8 +558,7 @@ __declspec(naked) NiTMap::Entry* __stdcall AddTraitName(const char *name)
 		mov		[ecx+8], eax
 	done:
 		mov		eax, [ebp-4]
-		mov		esp, ebp
-		pop		ebp
+		leave
 		retn	4
 	}
 }
@@ -616,13 +608,26 @@ __declspec(naked) char __stdcall GetGMSTValue(char *result)
 		cmp		dl, 'i'
 		setz	al
 		jnz		done
-		cvtsi2ss	xmm0, [eax+4]
-		movd	[ecx], xmm0
+		movd	xmm0, [eax+4]
+		cvtdq2ps	xmm0, xmm0
+		movss	[ecx], xmm0
 	done:
 		pop		esi
 		retn	4
 	}
 }
+
+const bool kValidForNumeric[] =
+{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
 
 __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *inData, UInt32 inLength)
 {
@@ -634,10 +639,10 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		push	esi
 		push	edi
 		push	0x14
-		call	GameHeapAlloc
+		GAME_HEAP_ALLOC
 		mov		[ebp-4], eax
 		mov		ecx, eax
-		call	kAddrSubA0AC80
+		CALL_EAX(0xA0AC80)
 		push	dword ptr [ebp+8]
 		mov		ecx, offset s_cachedParsedData
 		call	UnorderedMap<const char*, char*>::GetPtr
@@ -651,6 +656,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		test	edi, edi
 		jz		done
 		lea		esi, [eax+4]
+		ALIGN 16
 	cacheIter:
 		movzx	eax, byte ptr [esi+1]
 		cmp		al, 3
@@ -686,7 +692,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		jz		skipClose
 		mov		esi, eax
 		push	eax
-		call	ResolveIncludes
+		CALL_EAX(0xA02D40)
 		pop		ecx
 		cmp		s_debugMode, 0
 		jz		notDebug
@@ -713,6 +719,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		pxor	xmm0, xmm0
 		movdqu	xmmword ptr [ebp-0x1C], xmm0
 		jmp		getChar
+		ALIGN 16
 	mainIter:
 		inc		esi
 	getChar:
@@ -743,25 +750,24 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		jz		doneOpen
 		mov		[ebp-0x17], al
 		jmp		doneValue
+		ALIGN 16
 	numTag:
 		push	ecx
 		mov		ecx, 0x11F32F4
 		call	NiTMap::Lookup
 		test	eax, eax
 		jz		doneValue
-		cvtsi2ss	xmm0, [eax+8]
+		movd	xmm0, [eax+8]
+		cvtdq2ps	xmm0, xmm0
 		jmp		isNum
 	notTag:
-		mov		dl, [ecx]
+		movzx	edx, byte ptr [ecx]
 		cmp		dl, ' '
 		jb		doneOpen
 		mov		eax, ecx
+		ALIGN 16
 	charIter:
-		cmp		dl, '9'
-		ja		doneValue
-		cmp		dl, '-'
-		jb		doneValue
-		cmp		dl, '/'
+		cmp		kValidForNumeric[edx], 0
 		jz		doneValue
 		inc		eax
 		mov		dl, [eax]
@@ -788,6 +794,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		[ecx], edx
 		add		ecx, 4
 		jmp		writeVal1
+		ALIGN 16
 	cpyStrVal1:
 		push	0xFA
 		call	StrNCopy
@@ -805,6 +812,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 	doneOpen:
 		mov		dword ptr [ebp-0x14], 0
 		jmp		mainIter
+		ALIGN 16
 	notOpen:
 		cmp		al, '>'
 		jnz		notClose
@@ -838,6 +846,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		ecx, [ebp-4]
 		call	ResolveTrait
 		jmp		doneClose
+		ALIGN 16
 	invID0:
 		cmp		s_debugPrint, 0
 		jz		doneClose
@@ -849,16 +858,18 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		dword ptr [ebp-0x14], 0
 		mov		[ebp-0x15], 0
 		jmp		mainIter
+		ALIGN 16
 	notClose:
 		cmp		[ebp-0xD], 0
 		jz		isClosed
 		cmp		al, '/'
 		jnz		notSlash
+		mov		[esi], 0
 		mov		[ebp-0xE], 1
 		mov		[ebp-0xF], 0
-		mov		[esi], 0
 		mov		[ebp-0x15], 0
 		jmp		mainIter
+		ALIGN 16
 	notSlash:
 		cmp		[ebp-0x10], 0
 		jnz		mainIter
@@ -867,12 +878,14 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		[ebp-0x15], 1
 		mov		[esi], 0
 		jmp		mainIter
+		ALIGN 16
 	notSpace:
 		cmp		dword ptr [ebp-0x14], 0
 		jnz		procAction
 		mov		[ebp-0x14], esi
 		mov		[ebp-0x15], 0
 		jmp		mainIter
+		ALIGN 16
 	procAction:
 		cmp		[ebp-0x15], 0
 		jz		mainIter
@@ -886,6 +899,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		ecx, [ebp-0x14]
 		mov		dword ptr [ebp-0x14], 0
 		jmp		logErrorID
+		ALIGN 16
 	validID0:
 		mov		eax, [eax+8]
 		push	3
@@ -910,6 +924,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		ecx, 0xBBB
 		add		esi, 3
 		jmp		findDQ0
+		ALIGN 16
 	notSrc:
 		cmp		ecx, 'eman'
 		jnz		onError0
@@ -926,6 +941,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 	verifyEQ:
 		cmp		[esi], '='
 		jnz		onError2
+		ALIGN 16
 	findDQ0:
 		inc		esi
 		mov		dl, [esi]
@@ -961,6 +977,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		[ebp-0x16], 1
 		call	PrintErrorInvID
 		jmp		mainIter
+		ALIGN 16
 	validID1:
 		mov		eax, [eax+8]
 		mov		ecx, 0xBBC
@@ -979,6 +996,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		[ecx], ax
 		add		ecx, 2
 		jmp		writeVal2
+		ALIGN 16
 	cpyStrVal2:
 		mov		dl, [eax]
 		mov		[ecx], dl
@@ -1024,11 +1042,13 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		ecx, offset s_log
 		call	FileStream::WriteBuf
 		jmp		mainIter
+		ALIGN 16
 	isClosed:
 		cmp		dword ptr [ebp-0x14], 0
 		jnz		mainIter
 		mov		[ebp-0x14], esi
 		jmp		mainIter
+		ALIGN 16
 	mainEnd:
 		cmp		s_debugPrint, 0
 		jz		skipClose
@@ -1059,14 +1079,13 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 		mov		eax, [ebp-8]
 		push	eax
 		push	dword ptr [eax+4]
-		call	GameHeapFree
-		call	GameHeapFree
+		GAME_HEAP_FREE
+		GAME_HEAP_FREE
 	done:
 		mov		eax, [ebp-4]
 		pop		edi
 		pop		esi
-		mov		esp, ebp
-		pop		ebp
+		leave
 		retn
 	}
 }
@@ -1082,30 +1101,93 @@ struct TileName
 	~TileName() {free(name);}
 };
 
-char kMenuNames[] =
-"BarterMenu\0BlackJackMenu\0CaravanMenu\0CharGenMenu\0CompanionWheelMenu\0ComputersMenu\0ContainerMenu\0DialogMenu\0HackingMenu\0\
-LevelUpMenu\0LoadingMenu\0LockPickMenu\0LoveTesterMenu\0MessageMenu\0QuantityMenu\0RaceSexMenu\0RecipeMenu\0RepairServicesMenu\0\
-RouletteMenu\0SleepWaitMenu\0SlotMachineMenu\0SpecialBookMenu\0StartMenu\0TraitMenu\0TraitSelectMenu\0TutorialMenu\0VATSMenu\0\
-HUDMainMenu\0InventoryMenu\0ItemModMenu\0MapMenu\0RepairMenu\0StatsMenu";
-const UInt32 kMenuFiles[] =
+__declspec(naked) void TileTextApplyScaleHook()
 {
-	0x10707B4, 0x1070C38, 0x107170C, 0x1071C5C, 0x1071DFC, 0x10720E8, 0x1072258, 0x107266C, 0x1072990, 0x1073D9C, 0x1073F04,
-	0x10744A0, 0x10746DC, 0x1075724, 0x10758C4, 0x10759BC, 0x107054C, 0x1075E9C, 0x1076254, 0x1076468, 0x1076670, 0x1076874,
-	0x1076D8C, 0x1077A5C, 0x1077B04, 0x1077BA4, 0x1077D50, 0x107343C, 0x1073A70, 0x1073C34, 0x1074DF8, 0x1075D14, 0x107730C
-};
-char kTileTypes[] = "menu\0rect\0image\0text\0hotrect\0nif\0radial\0template";
+	static const float kFlt1d100 = 0.01F;
+	__asm
+	{
+		mov		[ebp-0x29], 0
+		mov		edx, 0xFB8
+		mov		ecx, [ebp-0x1B4]
+		call	GetTileValue
+		test	eax, eax
+		jz		noScale
+		mov		edx, [eax+8]
+		test	edx, edx
+		jle		noScale
+		cmp		edx, 0x42C80000
+		jz		noScale
+		movd	xmm0, edx
+		mulss	xmm0, kFlt1d100
+		movss	[ebp-0xE8], xmm0
+		mov		[ebp-0x29], 1
+		mov		edx, [ebp-0x58]
+		cmp		edx, 0x800
+		jnb		noScale
+		movd	xmm1, edx
+		cvtdq2ps	xmm1, xmm1
+		divss	xmm1, xmm0
+		cvtps2dq	xmm1, xmm1
+		movd	[ebp-0x58], xmm1
+	noScale:
+		mov		ecx, [ebp-0x64]
+		CALL_EAX(0xA12880)
+		mov		ecx, [ebp-0xB0]
+		cmp		[ebp-0x29], 0
+		jz		done
+		movss	xmm0, [ebp-0xE8]
+		movss	[ecx+0x64], xmm0
+		movd	xmm1, [ebp-0x1C]
+		cvtdq2ps	xmm1, xmm1
+		mulss	xmm1, xmm0
+		cvtps2dq	xmm1, xmm1
+		movd	[ebp-0x1C], xmm1
+		movd	xmm1, [ebp-0x58]
+		cvtdq2ps	xmm1, xmm1
+		mulss	xmm1, xmm0
+		cvtps2dq	xmm1, xmm1
+		movd	[ebp-0x58], xmm1
+	done:
+		mov		eax, [ebp-0x1B4]
+		mov		edx, [ecx+0x58]
+		mov		[eax+0x3C], edx
+		mov		edx, [ecx+0x5C]
+		mov		[eax+0x40], edx
+		mov		edx, [ecx+0x60]
+		mov		[eax+0x44], edx
+		JMP_EAX(0xA22244)
+	}
+}
 
 void UIOLoad()
 {
-	UnorderedMap<char*, const char*> menuNameToFile(0x40);
-	char *bufferPtr = kMenuNames;
-	UInt32 length = 0;
-	do
-	{
-		menuNameToFile[bufferPtr] = (const char*)kMenuFiles[length];
-		bufferPtr += StrLen(bufferPtr) + 1;
-	}
-	while (++length < 33);
+	void (*RegTraitID)(const char*, UInt32) = (void (*)(const char*, UInt32))0x9FF8A0;
+
+	RegTraitID("neg", 0x7EA);
+	RegTraitID("recipr", 0x7EB);
+	RegTraitID("land", 0x7EC);
+	RegTraitID("lor", 0x7ED);
+	RegTraitID("shl", 0x7EE);
+	RegTraitID("shr", 0x7EF);
+	RegTraitID("sqrt", 0x7F0);
+	RegTraitID("pow", 0x7F1);
+	RegTraitID("sin", 0x7F2);
+	RegTraitID("cos", 0x7F3);
+	RegTraitID("tan", 0x7F4);
+	RegTraitID("log", 0x7F5);
+
+	SAFE_WRITE_BUF(0xA03923, "\x8B\x45\x08\x3D\xB7\x0F\x00\x00\x72\x50\x3D\xF7\x0F\x00\x00\x74\x07\x3D\xBE\x0F\x00\x00\x77\x42\x8B\x45\xCC\xF6\x40\x30\x02\x75\x0B\x80\x48\x30\x02\x50\xE8\x42\x3D\x00\x00\x58\xC9\xC2\x0C\x00");
+	WriteRelJump(0xA2220E, (UInt32)TileTextApplyScaleHook);
+	if (*(UInt32*)0xA22244 == 0xA222E768)
+		SAFE_WRITE_BUF(0xA22244, "\x68\xAD\x0F\x00\x00\x8B\x8D\x4C\xFE\xFF");
+
+	UnorderedMap<const char*, UInt32> menuNameToFile({{"BarterMenu", 0x10707B4}, {"BlackJackMenu", 0x1070C38}, {"CaravanMenu", 0x107170C}, {"CharGenMenu", 0x1071C5C},
+		{"CompanionWheelMenu", 0x1071DFC}, {"ComputersMenu", 0x10720E8}, {"ContainerMenu", 0x1072258}, {"DialogMenu", 0x107266C}, {"HackingMenu", 0x1072990},
+		{"LevelUpMenu", 0x1073D9C}, {"LoadingMenu", 0x1073F04}, {"LockPickMenu", 0x10744A0}, {"LoveTesterMenu", 0x10746DC}, {"MessageMenu", 0x1075724},
+		{"QuantityMenu", 0x10758C4}, {"RaceSexMenu", 0x10759BC}, {"RecipeMenu", 0x107054C}, {"RepairServicesMenu", 0x1075E9C}, {"RouletteMenu", 0x1076254},
+		{"SleepWaitMenu", 0x1076468}, {"SlotMachineMenu", 0x1076670}, {"SpecialBookMenu", 0x1076874}, {"StartMenu", 0x1076D8C}, {"TraitMenu", 0x1077A5C},
+		{"TraitSelectMenu", 0x1077B04}, {"TutorialMenu", 0x1077BA4}, {"VATSMenu", 0x1077D50}, {"HUDMainMenu", 0x107343C}, {"InventoryMenu", 0x1073A70},
+		{"ItemModMenu", 0x1073C34}, {"MapMenu", 0x1074DF8}, {"RepairMenu", 0x1075D14}, {"StatsMenu", 0x107730C}});
 
 	char prefabsPath[0x80];
 	memcpy(prefabsPath, "Data\\menus\\prefabs\\duinvsettings.xml", 37);
@@ -1114,7 +1196,7 @@ void UIOLoad()
 
 	DataHandler *dataHandler = *(DataHandler**)0x11C3F2C;
 	UnorderedMap<char*, IncludeRefs> injectLists;
-	char uioPath[0x50], menusPath[0x80], *readBuffer = (char*)malloc(0x2000), *menuFile, *tileName, *pathStr, *delim;
+	char uioPath[0x50], menusPath[0x80], *readBuffer = (char*)malloc(0x2000), *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
 	bool condLine, skipCond, evalRes, skipExpr, isOper, operAND, not, tempRes;
 	memcpy(uioPath, "Data\\uio\\public\\*.txt", 22);
 	DirectoryIterator pubIter(uioPath);
@@ -1174,7 +1256,7 @@ void UIOLoad()
 				else
 				{
 					if (!*tileName) tileName = menuFile;
-					menuFile = const_cast<char*>(menuNameToFile.Get(menuFile));
+					menuFile = (char*)menuNameToFile.Get(menuFile);
 					if (!menuFile)
 					{
 						s_log.WriteBuf("\t\t! Invalid target menu > Skipping.\n", 36);
@@ -1210,7 +1292,7 @@ void UIOLoad()
 					{
 						if (not = *bufferPtr == '!')
 							bufferPtr++;
-						if (StrEqualCI(bufferPtr, "true"))
+						if (!StrCompare(bufferPtr, "true"))
 							tempRes = true;
 						else if (*bufferPtr == '#')
 						{
@@ -1219,7 +1301,7 @@ void UIOLoad()
 						}
 						else if (*bufferPtr == '?')
 							tempRes = dataHandler->IsModLoaded(bufferPtr + 1);
-						else if (StrEqualCI(bufferPtr, "darnui"))
+						else if (!StrCompare(bufferPtr, "darnui"))
 							tempRes = darnUI;
 						else break;
 
@@ -1250,14 +1332,6 @@ void UIOLoad()
 
 	g_gameSettingsMap = (NiTMap*)(*(UInt8**)0x11C8048 + 0x10C);
 
-	length = 0;
-	do
-	{
-		s_cachedParsedData[(const char*)kMenuFiles[length]];
-	}
-	while (++length < 27);
-	s_cachedParsedData["Data\\NVSE\\plugins\\textinput\\texteditmenu.xml"];
-
 	s_log.WriteBuf("\n---------------------------\n*** Patching menu files ***\n---------------------------\n", 85);
 
 	FileStream cacheFile;
@@ -1273,17 +1347,18 @@ void UIOLoad()
 		return;
 	}
 
-	UnorderedSet<const char*> tileTypes;
-	bufferPtr = kTileTypes;
-	length = 0;
-	do
-	{
-		tileTypes.Insert(bufferPtr);
-		bufferPtr += StrLen(bufferPtr) + 1;
-	}
-	while (++length < 8);
+	s_cachedParsedData.InsertList({{(const char*)0x10707B4, nullptr}, {(const char*)0x1070C38, nullptr}, {(const char*)0x107170C, nullptr},
+		{(const char*)0x1071C5C, nullptr}, {(const char*)0x1071DFC, nullptr}, {(const char*)0x10720E8, nullptr}, {(const char*)0x1072258, nullptr},
+		{(const char*)0x107266C, nullptr}, {(const char*)0x1072990, nullptr}, {(const char*)0x1073D9C, nullptr}, {(const char*)0x1073F04, nullptr},
+		{(const char*)0x10744A0, nullptr}, {(const char*)0x10746DC, nullptr}, {(const char*)0x1075724, nullptr}, {(const char*)0x10758C4, nullptr},
+		{(const char*)0x10759BC, nullptr}, {(const char*)0x107054C, nullptr}, {(const char*)0x1075E9C, nullptr}, {(const char*)0x1076254, nullptr},
+		{(const char*)0x1076468, nullptr}, {(const char*)0x1076670, nullptr}, {(const char*)0x1076874, nullptr}, {(const char*)0x1076D8C, nullptr},
+		{(const char*)0x1077A5C, nullptr}, {(const char*)0x1077B04, nullptr}, {(const char*)0x1077BA4, nullptr}, {(const char*)0x1077D50, nullptr},
+		{"Data\\NVSE\\plugins\\textinput\\texteditmenu.xml", nullptr}});
 
-	UInt32 lastOffset = 0, currOffset;
+	UnorderedSet<const char*> tileTypes({"menu", "rect", "image", "text", "hotrect", "nif", "radial", "template"});;
+
+	UInt32 length, lastOffset = 0, currOffset;
 	XMLFileData *fileData, *inclData;
 	char *bgnPtr, *endPtr, srchType;
 	Vector<TileName> openTiles(10);
@@ -1292,7 +1367,7 @@ void UIOLoad()
 	{
 		PrintLog("\n>>>>> Processing file '%s'", menuIter.Key() + 11);
 
-		fileData = GetXMLFileData(menuIter.Key(), 0);
+		fileData = GetXMLFileData(menuIter.Key());
 		if (!fileData)
 		{
 			s_log.WriteBuf("\tERROR: Could not open file > Skipping.\n", 40);
@@ -1317,7 +1392,7 @@ void UIOLoad()
 							for (auto inclIter = findTile().Begin(); inclIter; ++inclIter)
 							{
 								StrCopy(prefabsPath + 19, *inclIter);
-								inclData = GetXMLFileData(prefabsPath, 0);
+								inclData = GetXMLFileData(prefabsPath);
 								if (!inclData)
 								{
 									PrintLog("\t! ERROR: Could not open '%s' > Skipping.", *inclIter);
@@ -1394,7 +1469,7 @@ __declspec(naked) InterfaceManager* __fastcall InitInterfaceMngrHook(InterfaceMa
 {
 	__asm
 	{
-		call	kInitInterfaceMngrAddr
+		CALL_EAX(0x70A130)
 		push	eax
 		call	UIOLoad
 		mov		ecx, offset s_log
@@ -1403,6 +1478,531 @@ __declspec(naked) InterfaceManager* __fastcall InitInterfaceMngrHook(InterfaceMa
 		retn
 	}
 }
+
+__declspec(naked) void DoTileOperatorCOPY()
+{
+	__asm
+	{
+		mov		edx, [ebp-0x34]
+		test	edx, edx
+		jz		setValue
+		mov		ecx, [eax+0xC]
+		test	ecx, ecx
+		jz		copyStr
+		push	ecx
+		push	edx
+		CALL_EAX(0xEC6DA0)
+		pop		ecx
+		test	eax, eax
+		jnz		freeStr
+		pop		ecx
+		mov		[ebp-0x25], 0
+		retn
+		ALIGN 16
+	setValue:
+		mov		edx, [ebp-0x38]
+		mov		[eax+8], edx
+		retn
+		ALIGN 16
+	freeStr:
+		GAME_HEAP_FREE
+	copyStr:
+		mov		[ebp-0x25], 1
+		mov		ecx, [ebp-0x34]
+		call	StrLen
+		inc		eax
+		push	eax
+		push	ecx
+		push	eax
+		GAME_HEAP_ALLOC
+		push	eax
+		call	_memcpy
+		add		esp, 0xC
+		mov		ecx, [ebp-0x6C]
+		mov		[ecx+0xC], eax
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorADD()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		addss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorSUB()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		subss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorMUL()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		mulss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorDIV()
+{
+	__asm
+	{
+		cmp		dword ptr [ebp-0x38], 0
+		jz		done
+		movss	xmm0, [eax+8]
+		divss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorMIN()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		minss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorMAX()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		maxss	xmm0, [ebp-0x38]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorMOD()
+{
+	__asm
+	{
+		movss	xmm0, [ebp-0x38]
+		cvtss2si	ecx, xmm0
+		test	ecx, ecx
+		jz		done
+		movss	xmm0, [eax+8]
+		cvtss2si	eax, xmm0
+		cdq
+		idiv	ecx
+		movd	xmm0, edx
+		cvtdq2ps	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorFLOOR()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		addss	xmm0, [ebp-0x38]
+		lea		ecx, [ebp-0x78]
+		mov		dword ptr [ecx], 0x3FA0
+		ldmxcsr	[ecx]
+		cvtps2dq	xmm0, xmm0
+		mov		dword ptr [ecx], 0x1FA0
+		ldmxcsr	[ecx]
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorCEIL()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		addss	xmm0, [ebp-0x38]
+		lea		ecx, [ebp-0x78]
+		mov		dword ptr [ecx], 0x5FA0
+		ldmxcsr	[ecx]
+		cvtps2dq	xmm0, xmm0
+		mov		dword ptr [ecx], 0x1FA0
+		ldmxcsr	[ecx]
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorABS()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		addss	xmm0, [ebp-0x38]
+		movd	ecx, xmm0
+		and		ecx, 0x7FFFFFFF
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorROUND()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		addss	xmm0, [ebp-0x38]
+		cvtps2dq	xmm0, xmm0
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorGT()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmova	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorGTE()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmovnb	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorEQ()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmovz	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorNEQ()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmovnz	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorLT()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmovb	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorLTE()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		mov		edx, 0x3F800000
+		movss	xmm0, [eax+8]
+		comiss	xmm0, [ebp-0x38]
+		cmovbe	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorAND()
+{
+	__asm
+	{
+		cmp		dword ptr [eax+8], 0
+		jz		done
+		mov		edx, 0x3F800000
+		cmp		dword ptr [ebp-0x34], 0
+		jz		value
+		mov		[eax+8], edx
+	done:
+		retn
+		ALIGN 16
+	value:
+		xor		ecx, ecx
+		cmp		dword ptr [ebp-0x38], 0
+		cmovnz	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorOR()
+{
+	__asm
+	{
+		mov		ecx, [eax+8]
+		cmp		dword ptr [ebp-0x34], 0
+		jnz		done
+		or		ecx, [ebp-0x38]
+	done:
+		mov		edx, 0x3F800000
+		test	ecx, ecx
+		cmovnz	ecx, edx
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorNOT()
+{
+	__asm
+	{
+		xor		ecx, ecx
+		cmp		dword ptr [ebp-0x34], 0
+		jnz		done
+		mov		edx, 0x3F800000
+		cmp		dword ptr [ebp-0x38], 0
+		cmovz	ecx, edx
+	done:
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorONLYIF()
+{
+	__asm
+	{
+		cmp		dword ptr [ebp-0x38], 0
+		jnz		done
+		cmp		dword ptr [ebp-0x34], 0
+		jnz		done
+		mov		dword ptr [eax+8], 0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorONLYIFNOT()
+{
+	__asm
+	{
+		mov		ecx, [ebp-0x38]
+		or		ecx, [ebp-0x34]
+		jz		done
+		mov		dword ptr [eax+8], 0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorNEG()
+{
+	__asm
+	{
+		mov		ecx, [ebp-0x38]
+		test	ecx, ecx
+		jz		done
+		xor		ecx, 0x80000000
+	done:
+		mov		[eax+8], ecx
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorRECIPR()
+{
+	__asm
+	{
+		mov		ecx, [ebp-0x38]
+		test	ecx, ecx
+		jz		done
+		movd	xmm0, ecx
+		rcpss	xmm0, xmm0
+		movss	[eax+8], xmm0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorLAND()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		cvtps2dq	xmm0, xmm0
+		movss	xmm1, [ebp-0x38]
+		cvtps2dq	xmm1, xmm1
+		andps	xmm0, xmm1
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorLOR()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		cvtps2dq	xmm0, xmm0
+		movss	xmm1, [ebp-0x38]
+		cvtps2dq	xmm1, xmm1
+		orps	xmm0, xmm1
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorSHL()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		cvtps2dq	xmm0, xmm0
+		movss	xmm1, [ebp-0x38]
+		cvtps2dq	xmm1, xmm1
+		pslld	xmm0, xmm1
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorSHR()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		cvtps2dq	xmm0, xmm0
+		movss	xmm1, [ebp-0x38]
+		cvtps2dq	xmm1, xmm1
+		psrad	xmm0, xmm1
+		cvtdq2ps	xmm0, xmm0
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorSQRT()
+{
+	__asm
+	{
+		mov		ecx, [ebp-0x38]
+		test	ecx, ecx
+		js		done
+		movd	xmm0, ecx
+		sqrtss	xmm0, xmm0
+		movss	[eax+8], xmm0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorPOW()
+{
+	__asm
+	{
+		movss	xmm0, [eax+8]
+		cvtps2pd	xmm0, xmm0
+		movss	xmm1, [ebp-0x38]
+		cvtps2pd	xmm1, xmm1
+		call	dPow
+		cvtsd2ss	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorSIN()
+{
+	__asm
+	{
+		movss	xmm0, [ebp-0x38]
+		cvtps2pd	xmm0, xmm0
+		mulsd	xmm0, kDblPId180
+		call	dSin
+		cvtsd2ss	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorCOS()
+{
+	__asm
+	{
+		movss	xmm0, [ebp-0x38]
+		cvtps2pd	xmm0, xmm0
+		mulsd	xmm0, kDblPId180
+		call	dCos
+		cvtsd2ss	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorTAN()
+{
+	__asm
+	{
+		movss	xmm0, [ebp-0x38]
+		cvtps2pd	xmm0, xmm0
+		mulsd	xmm0, kDblPId180
+		call	dTan
+		cvtsd2ss	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorLOG()
+{
+	__asm
+	{
+		mov		ecx, [ebp-0x38]
+		test	ecx, ecx
+		jle		done
+		movd	xmm0, ecx
+		cvtps2pd	xmm0, xmm0
+		call	dLog
+		cvtsd2ss	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+	done:
+		retn
+	}
+}
+__declspec(naked) void DoTileOperatorINVALID()
+{
+	__asm	retn
+}
+
+const void *kDoOperatorJumpTable[] =
+{
+	DoTileOperatorCOPY, DoTileOperatorADD, DoTileOperatorSUB, DoTileOperatorMUL, DoTileOperatorDIV, DoTileOperatorMIN, DoTileOperatorMAX, DoTileOperatorMOD,
+	DoTileOperatorFLOOR, DoTileOperatorCEIL, DoTileOperatorABS, DoTileOperatorROUND, DoTileOperatorGT, DoTileOperatorGTE, DoTileOperatorEQ, DoTileOperatorNEQ,
+	DoTileOperatorLT, DoTileOperatorLTE, DoTileOperatorAND, DoTileOperatorOR, DoTileOperatorNOT, DoTileOperatorONLYIF, DoTileOperatorONLYIFNOT,
+	DoTileOperatorINVALID, DoTileOperatorINVALID, DoTileOperatorINVALID, DoTileOperatorNEG, DoTileOperatorRECIPR, DoTileOperatorLAND, DoTileOperatorLOR,
+	DoTileOperatorSHL, DoTileOperatorSHR, DoTileOperatorSQRT, DoTileOperatorPOW, DoTileOperatorSIN, DoTileOperatorCOS, DoTileOperatorTAN, DoTileOperatorLOG
+};
 
 struct PluginInfo
 {
@@ -1437,14 +2037,23 @@ bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "UI Organizer Plugin";
-	info->version = 210;
-	return !nvse->isEditor;
+	info->version = 220;
+	if (nvse->isEditor)
+		return false;
+	s_log.Create(s_logPath);
+	if (nvse->runtimeVersion != 0x040020D0)
+	{
+		PrintLog("ERROR: Unsupported runtime version (%08X).", nvse->runtimeVersion);
+		return false;
+	}
+	PrintLog("UI Organizer v2.20\nRuntime version = %08X\nNVSE version = %08X\n", nvse->runtimeVersion, nvse->nvseVersion);
+	return true;
 }
 
 bool NVSEPlugin_Load(const NVSEInterface *nvse)
 {
-	s_log.Create(s_logPath);
-	PrintLog("UI Organizer v2.10\nRuntime version = %08X\nNVSE version = %08X\n", nvse->runtimeVersion, nvse->nvseVersion);
+	_memcpy = memcpy;
+	_memmove = memmove;
 
 	if (GetPrivateProfileIntA("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
 	{
@@ -1456,23 +2065,20 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 		s_log.Create(s_logPath);
 	}
 
-	bool isNogore = nvse->isNogore != 0;
-	if (isNogore)
-	{
-		kHeapAllocAddr = 0xAA3EF0;
-		kHeapFreeAddr = 0xAA4110;
-		kInitInterfaceMngrAddr = 0x70A080;
-		GetXMLFileData = (_GetXMLFileData)0xA1CA30;
-		ResolveIncludes = (_ResolveIncludes)0xA02C10;
-		kAddrSub43A010 = 0x439EC0;
-		kAddrSubA0AC80 = 0xA0AB50;
-		kAddrSubA0AE70 = 0xA0AD40;
-		kAddrSubA0AF10 = 0xA0ADE0;
-		kAddrSubAE8010 = 0xAE84A0;
-	}
-
-	WriteRelCall(isNogore ? 0x709F85 : 0x70A035, InitInterfaceMngrHook);
-	WriteRelCall(isNogore ? 0xA01A57 : 0xA01B87, ResolveXMLFileHook);
-	WriteRelCall(isNogore ? 0xA02E14 : 0xA02F44, GetXMLFileDataHook);
+	WriteRelCall(0x70A035, InitInterfaceMngrHook);
+	WriteRelCall(0xA01B87, ResolveXMLFileHook);
+	WriteRelCall(0xA02F44, GetXMLFileDataHook);
+	SAFE_WRITE_BUF(0xA0968C, "\x8B\x55\xD0\x81\xEA\xD0\x07\x00\x00\x83\xFA\x25\x0F\x87\x2C\x07\x00\x00\x8B\x85\x20\xFF\xFF\xFF\x89\x45\x94\x68\xCA\x9D\xA0\x00\xFF\x24\x95");
+	/*
+	mov		edx, [ebp-0x30]
+	sub		edx, 0x7D0
+	cmp		edx, 0x25
+	ja		+0x72C (0xA09DCA)
+	mov		eax, [ebp-0xE0]
+	mov		[ebp-0x6C], eax
+	push	0xA09DCA
+	jmp		ds:kDoOperatorJumpTable[edx*4]	// Only the first 3 bytes of the instruction; the offset is written next.
+	*/
+	SafeWrite32(0xA096AF, (UInt32)&kDoOperatorJumpTable);
 	return true;
 }

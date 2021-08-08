@@ -2,9 +2,6 @@
 
 #include "utility.h"
 
-void* __stdcall GameHeapAlloc(UInt32 size);
-void __stdcall GameHeapFree(void *ptr);
-
 struct String
 {
 	char		*m_data;
@@ -57,6 +54,19 @@ public:
 	UInt16		numObjs;		// 0C
 	UInt16		growSize;		// 0E
 };
+
+class Tile;
+
+struct TileValue
+{
+	UInt32		id;			// 00
+	Tile		*parent;	// 04
+	float		num;		// 08
+	char		*str;		// 0C
+	void		*action;	// 10
+};
+
+TileValue* __fastcall GetTileValue(Tile *tile, UInt32 typeID);
 
 struct ModInfo
 {

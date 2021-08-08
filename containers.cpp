@@ -1,44 +1,86 @@
 #include "containers.h"
 
-#define MAX_CACHED_BLOCK_SIZE 0x200
+#define MAX_BLOCK_SIZE		0x400UL
+#define MEMORY_POOL_SIZE	0x1000UL
 
-alignas(16) void *s_availableCachedBlocks[(MAX_CACHED_BLOCK_SIZE >> 2) + 1] = {NULL};
+struct MemoryPool
+{
+	struct BlockNode
+	{
+		BlockNode	*m_next;
+		//	Data
+	};
 
-alignas(16) UInt32 s_poolSemaphore = 0;
+	PrimitiveCS		m_cs;
+	BlockNode		*m_pools[MAX_BLOCK_SIZE >> 4];
+
+	MemoryPool() {MemZero(m_pools, sizeof(m_pools));}
+};
+
+alignas(16) MemoryPool s_memoryPool;
 
 __declspec(naked) void* __fastcall Pool_Alloc(UInt32 size)
 {
 	__asm
 	{
-		test	cl, 3
+		test	cl, 0xF
 		jz		isAligned
-		and		cl, 0xFC
-		add		ecx, 4
-		jmp		isAligned
-		and		esp, 0xEFFFFFFF
+		and		cl, 0xF0
+		add		ecx, 0x10
 	isAligned:
-		cmp		ecx, MAX_CACHED_BLOCK_SIZE
-		ja		doAlloc
-		mov		edx, offset s_poolSemaphore
-	spinHead:
-		xor		eax, eax
-		lock cmpxchg [edx], edx
-		test	eax, eax
-		jnz		spinHead
-		lea		edx, s_availableCachedBlocks[ecx]
+		cmp		ecx, MAX_BLOCK_SIZE
+		jbe		doCache
+		push	0x10
+		push	ecx
+		call	_aligned_malloc
+		add		esp, 8
+		retn
+	doCache:
+		push	ecx
+		mov		ecx, offset s_memoryPool.m_cs
+		call	PrimitiveCS::Enter
+		pop		ecx
+		mov		edx, ecx
+		shr		edx, 2
+		add		edx, eax
 		mov		eax, [edx]
 		test	eax, eax
-		jz		noCached
+		jz		allocPool
 		mov		ecx, [eax]
 		mov		[edx], ecx
-		mov		s_poolSemaphore, 0
+		xor		edx, edx
+		mov		s_memoryPool.m_cs.owningThread, edx
 		retn
-	noCached:
-		mov		s_poolSemaphore, 0
-	doAlloc:
+		NOP_0x2
+	allocPool:
+		push	esi
+		mov		esi, ecx
+		mov		ecx, MEMORY_POOL_SIZE
+		push	edx
+		xor		edx, edx
+		mov		eax, ecx
+		div		esi
+		push	eax
+		sub		ecx, edx
+		push	0x10
 		push	ecx
-		call	malloc
+		call	_aligned_malloc
+		add		esp, 8
 		pop		ecx
+		sub		ecx, 2
+		pop		edx
+		mov		[edx], eax
+		lea		edx, [eax+esi]
+	linkHead:
+		mov		[eax], edx
+		mov		eax, edx
+		add		edx, esi
+		dec		ecx
+		jnz		linkHead
+		mov		[eax], ecx
+		mov		eax, edx
+		mov		s_memoryPool.m_cs.owningThread, ecx
+		pop		esi
 		retn
 	}
 }
@@ -49,34 +91,33 @@ __declspec(naked) void __fastcall Pool_Free(void *pBlock, UInt32 size)
 	{
 		test	ecx, ecx
 		jz		nullPtr
-		test	dl, 3
+		test	dl, 0xF
 		jz		isAligned
-		and		dl, 0xFC
-		add		edx, 4
+		and		dl, 0xF0
+		add		edx, 0x10
+		ALIGN 16
 	isAligned:
-		cmp		edx, MAX_CACHED_BLOCK_SIZE
-		jbe		doCache
+		cmp		edx, MAX_BLOCK_SIZE
+		ja		doFree
+		push	edx
 		push	ecx
-		call	free
+		mov		ecx, offset s_memoryPool.m_cs
+		call	PrimitiveCS::Enter
 		pop		ecx
+		pop		edx
+		shr		edx, 2
+		add		edx, eax
+		mov		eax, [edx]
+		mov		[ecx], eax
+		mov		[edx], ecx
+		mov		s_memoryPool.m_cs.owningThread, 0
 	nullPtr:
 		retn
-		mov		eax, 0
-		mov		eax, 0
-	doCache:
-		push	edx
-		mov		edx, offset s_poolSemaphore
-	spinHead:
-		xor		eax, eax
-		lock cmpxchg [edx], edx
-		test	eax, eax
-		jnz		spinHead
-		pop		edx
-		lea		eax, s_availableCachedBlocks[edx]
-		mov		edx, [eax]
-		mov		[ecx], edx
-		mov		[eax], ecx
-		mov		s_poolSemaphore, 0
+		ALIGN 16
+	doFree:
+		push	ecx
+		call	_aligned_free
+		pop		ecx
 		retn
 	}
 }
@@ -85,28 +126,16 @@ __declspec(naked) void* __fastcall Pool_Realloc(void *pBlock, UInt32 curSize, UI
 {
 	__asm
 	{
-		test	dl, 3
-		jz		isAligned
-		and		dl, 0xFC
-		add		edx, 4
-	isAligned:
-		cmp		edx, MAX_CACHED_BLOCK_SIZE
-		jbe		doCache
-		push	dword ptr [esp+4]
-		push	ecx
-		call	realloc
-		add		esp, 8
-		retn	4
-	doCache:
-		test	ecx, ecx
-		jnz		doRealloc
+		mov		eax, ecx
 		mov		ecx, [esp+4]
-		call	Pool_Alloc
-		retn	4
-	doRealloc:
+		test	eax, eax
+		jz		nullPtr
+		cmp		ecx, edx
+		jbe		done
+		cmp		edx, MAX_BLOCK_SIZE
+		ja		doRealloc
 		push	edx
-		push	ecx
-		mov		ecx, [esp+0xC]
+		push	eax
 		call	Pool_Alloc
 		push	eax
 		call	_memcpy
@@ -116,6 +145,19 @@ __declspec(naked) void* __fastcall Pool_Realloc(void *pBlock, UInt32 curSize, UI
 		push	eax
 		call	Pool_Free
 		pop		eax
+		retn	4
+		ALIGN 16
+	nullPtr:
+		call	Pool_Alloc
+	done:
+		retn	4
+		ALIGN 16
+	doRealloc:
+		push	0x10
+		push	ecx
+		push	eax
+		call	_aligned_realloc
+		add		esp, 0xC
 		retn	4
 	}
 }
@@ -143,9 +185,9 @@ __declspec(naked) UInt32 __fastcall AlignBucketCount(UInt32 count)
 {
 	__asm
 	{
-		cmp		ecx, MAP_DEFAULT_BUCKET_COUNT
+		cmp		ecx, MAP_MIN_BUCKET_COUNT
 		ja		gtMin
-		mov		eax, MAP_DEFAULT_BUCKET_COUNT
+		mov		eax, MAP_MIN_BUCKET_COUNT
 		retn
 	gtMin:
 		cmp		ecx, MAP_MAX_BUCKET_COUNT
@@ -153,12 +195,13 @@ __declspec(naked) UInt32 __fastcall AlignBucketCount(UInt32 count)
 		mov		eax, MAP_MAX_BUCKET_COUNT
 		retn
 	ltMax:
-		xor		eax, eax
-		bsr		edx, ecx
-		bts		eax, edx
-		cmp		eax, ecx
+		mov		eax, ecx
+		bsr		ecx, eax
+		bsf		edx, eax
+		cmp		cl, dl
 		jz		done
-		shl		eax, 1
+		mov		eax, 2
+		shl		eax, cl
 	done:
 		retn
 	}
