@@ -717,7 +717,7 @@ __declspec(naked) void* __cdecl ResolveXMLFileHook(const char *filePath, char *i
 	skipCache:
 		mov		esi, [esi+4]
 		pxor	xmm0, xmm0
-		movdqu	xmmword ptr [ebp-0x1C], xmm0
+		movups	[ebp-0x1C], xmm0
 		jmp		getChar
 		ALIGN 16
 	mainIter:
@@ -1136,17 +1136,17 @@ __declspec(naked) void TileTextApplyScaleHook()
 		cmp		[ebp-0x29], 0
 		jz		done
 		movss	xmm0, [ebp-0xE8]
+		unpcklps	xmm0, xmm0
 		movss	[ecx+0x64], xmm0
-		movd	xmm1, [ebp-0x1C]
+		mov		edx, [ebp-0x1C]
+		mov		[ebp-0x54], edx
+		movq	xmm1, qword ptr [ebp-0x58]
 		cvtdq2ps	xmm1, xmm1
-		mulss	xmm1, xmm0
-		cvtps2dq	xmm1, xmm1
-		movd	[ebp-0x1C], xmm1
-		movd	xmm1, [ebp-0x58]
-		cvtdq2ps	xmm1, xmm1
-		mulss	xmm1, xmm0
-		cvtps2dq	xmm1, xmm1
-		movd	[ebp-0x58], xmm1
+		mulps	xmm0, xmm1
+		cvtps2dq	xmm0, xmm0
+		movq	qword ptr [ebp-0x58], xmm0
+		mov		edx, [ebp-0x54]
+		mov		[ebp-0x1C], edx
 	done:
 		mov		eax, [ebp-0x1B4]
 		mov		edx, [ecx+0x58]
@@ -1557,10 +1557,12 @@ __declspec(naked) void DoTileOperatorDIV()
 {
 	__asm
 	{
-		cmp		dword ptr [ebp-0x38], 0
+		mov		edx, [ebp-0x38]
+		test	edx, edx
 		jz		done
 		movss	xmm0, [eax+8]
-		divss	xmm0, [ebp-0x38]
+		movd	xmm1, edx
+		divss	xmm0, xmm1
 		movss	[eax+8], xmm0
 	done:
 		retn
@@ -1571,7 +1573,8 @@ __declspec(naked) void DoTileOperatorMIN()
 	__asm
 	{
 		movss	xmm0, [eax+8]
-		minss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		minss	xmm0, xmm1
 		movss	[eax+8], xmm0
 		retn
 	}
@@ -1581,7 +1584,8 @@ __declspec(naked) void DoTileOperatorMAX()
 	__asm
 	{
 		movss	xmm0, [eax+8]
-		maxss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		maxss	xmm0, xmm1
 		movss	[eax+8], xmm0
 		retn
 	}
@@ -1616,7 +1620,7 @@ __declspec(naked) void DoTileOperatorFLOOR()
 		mov		dword ptr [ecx], 0x3FA0
 		ldmxcsr	[ecx]
 		cvtps2dq	xmm0, xmm0
-		mov		dword ptr [ecx], 0x1FA0
+		mov		byte ptr [ecx+1], 0x1F
 		ldmxcsr	[ecx]
 		cvtdq2ps	xmm0, xmm0
 		movss	[eax+8], xmm0
@@ -1633,7 +1637,7 @@ __declspec(naked) void DoTileOperatorCEIL()
 		mov		dword ptr [ecx], 0x5FA0
 		ldmxcsr	[ecx]
 		cvtps2dq	xmm0, xmm0
-		mov		dword ptr [ecx], 0x1FA0
+		mov		byte ptr [ecx+1], 0x1F
 		ldmxcsr	[ecx]
 		cvtdq2ps	xmm0, xmm0
 		movss	[eax+8], xmm0
@@ -1656,11 +1660,20 @@ __declspec(naked) void DoTileOperatorROUND()
 {
 	__asm
 	{
-		movss	xmm0, [eax+8]
-		addss	xmm0, [ebp-0x38]
+		mov		ecx, [eax+8]
+		test	ecx, ecx
+		jz		done
+		mov		edx, [ebp-0x38]
+		test	edx, edx
+		jle		done
+		movd	xmm0, ecx
+		movd	xmm1, edx
+		divss	xmm0, xmm1
 		cvtps2dq	xmm0, xmm0
 		cvtdq2ps	xmm0, xmm0
+		mulss	xmm0, xmm1
 		movss	[eax+8], xmm0
+	done:
 		retn
 	}
 }
@@ -1671,7 +1684,8 @@ __declspec(naked) void DoTileOperatorGT()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmova	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1684,7 +1698,8 @@ __declspec(naked) void DoTileOperatorGTE()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmovnb	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1697,7 +1712,8 @@ __declspec(naked) void DoTileOperatorEQ()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmovz	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1710,7 +1726,8 @@ __declspec(naked) void DoTileOperatorNEQ()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmovnz	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1723,7 +1740,8 @@ __declspec(naked) void DoTileOperatorLT()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmovb	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1736,7 +1754,8 @@ __declspec(naked) void DoTileOperatorLTE()
 		xor		ecx, ecx
 		mov		edx, 0x3F800000
 		movss	xmm0, [eax+8]
-		comiss	xmm0, [ebp-0x38]
+		movss	xmm1, [ebp-0x38]
+		comiss	xmm0, xmm1
 		cmovbe	ecx, edx
 		mov		[eax+8], ecx
 		retn
@@ -1838,11 +1857,13 @@ __declspec(naked) void DoTileOperatorRECIPR()
 	{
 		mov		ecx, [ebp-0x38]
 		test	ecx, ecx
-		jz		done
+		jz		isZero
 		movd	xmm0, ecx
 		rcpss	xmm0, xmm0
 		movss	[eax+8], xmm0
-	done:
+		retn
+	isZero:
+		mov		[eax+8], ecx
 		retn
 	}
 }

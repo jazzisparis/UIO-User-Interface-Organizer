@@ -68,6 +68,7 @@ __declspec(naked) NiTMap::Entry *NiTMap::Lookup(UInt32 key)
 		call	dword ptr [eax+4]
 		mov		ecx, [esi+8]
 		mov		edi, [ecx+eax*4]
+		ALIGN 16
 	findEntry:
 		test	edi, edi
 		jz		done
@@ -105,6 +106,7 @@ __declspec(naked) bool NiTMap::Insert(UInt32 key, Entry **outEntry)
 		mov		[ebp-4], eax
 		mov		ecx, [esi+8]
 		mov		edi, [ecx+eax*4]
+		ALIGN 16
 	findEntry:
 		test	edi, edi
 		jz		notFound
