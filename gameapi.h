@@ -17,6 +17,30 @@ template <typename T_Data> struct ListNode
 	ListNode	*next;
 };
 
+template <typename T_Data> struct DListNode
+{
+	DListNode	*next;
+	DListNode	*prev;
+	T_Data		*data;
+};
+
+template <class Item> class DList
+{
+public:
+	typedef DListNode<Item> Node;
+
+private:
+	Node		*first;
+	Node		*last;
+	UInt32		count;
+
+public:
+	bool Empty() const {return !first;}
+	Node *Head() {return first;}
+	Node *Tail() {return last;}
+	UInt32 Size() const {return count;}
+};
+
 class NiTMap
 {
 public:
@@ -56,6 +80,7 @@ public:
 };
 
 class Tile;
+class TileExtra;
 
 struct TileValue
 {

@@ -62,8 +62,7 @@ __declspec(naked) NiTMap::Entry *NiTMap::Lookup(UInt32 key)
 		push	esi
 		push	edi
 		mov		esi, ecx
-		mov		eax, [esp+0xC]
-		push	eax
+		push	dword ptr [esp+0xC]
 		mov		eax, [ecx]
 		call	dword ptr [eax+4]
 		mov		ecx, [esi+8]
@@ -72,9 +71,8 @@ __declspec(naked) NiTMap::Entry *NiTMap::Lookup(UInt32 key)
 	findEntry:
 		test	edi, edi
 		jz		done
-		mov		eax, [esp+0xC]
 		push	dword ptr [edi+4]
-		push	eax
+		push	dword ptr [esp+0x10]
 		mov		ecx, esi
 		mov		eax, [ecx]
 		call	dword ptr [eax+8]
