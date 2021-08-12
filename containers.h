@@ -250,7 +250,7 @@ template <typename T_Key, typename T_Data, const UInt32 _default_bucket_count = 
 
 public:
 	UnorderedMap(UInt32 _numBuckets = _default_bucket_count) : buckets(nullptr), numBuckets(_numBuckets), numEntries(0) {}
-	UnorderedMap(std::initializer_list<MappedPair<T_Key, T_Data>> inList) : buckets(nullptr), numBuckets(inList.size()), numEntries(0) {InsertList(inList);}
+	UnorderedMap(const MappedPair<T_Key, T_Data> *inList, UInt32 size) : buckets(nullptr), numBuckets(size), numEntries(0) {InsertList(inList, size);}
 	~UnorderedMap()
 	{
 		if (!buckets) return;
@@ -312,13 +312,13 @@ public:
 		return value;
 	}
 
-	void InsertList(std::initializer_list<MappedPair<T_Key, T_Data>> inList)
+	void InsertList(const MappedPair<T_Key, T_Data> *inList, UInt32 size)
 	{
 		T_Data *outData;
-		for (auto iter = inList.begin(); iter != inList.end(); ++iter)
+		for (; size; size--, inList++)
 		{
-			InsertKey(iter->key, &outData);
-			*outData = iter->value;
+			InsertKey(inList->key, &outData);
+			*outData = inList->value;
 		}
 	}
 
@@ -579,7 +579,7 @@ template <typename T_Key, const UInt32 _default_bucket_count = MAP_DEFAULT_BUCKE
 
 public:
 	UnorderedSet(UInt32 _numBuckets = _default_bucket_count) : buckets(nullptr), numBuckets(_numBuckets), numEntries(0) {}
-	UnorderedSet(std::initializer_list<T_Key> inList) : buckets(nullptr), numBuckets(inList.size()), numEntries(0) {InsertList(inList);}
+	UnorderedSet(T_Key *inList, UInt32 size) : buckets(nullptr), numBuckets(size), numEntries(0) {InsertList(inList, size);}
 	~UnorderedSet()
 	{
 		if (!buckets) return;
@@ -626,10 +626,10 @@ public:
 		return true;
 	}
 
-	void InsertList(std::initializer_list<T_Key> inList)
+	void InsertList(T_Key *inList, UInt32 size)
 	{
-		for (auto iter = inList.begin(); iter != inList.end(); ++iter)
-			Insert(*iter);
+		for (; size; size--, inList++)
+			Insert(*inList);
 	}
 
 	bool HasKey(Key_Arg key) const

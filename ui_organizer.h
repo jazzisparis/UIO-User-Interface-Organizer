@@ -9,17 +9,17 @@ struct XMLFileData
 	UInt32		length;
 	char		*data;
 
+	__forceinline static XMLFileData *Get(const char *filePath)
+	{
+		return CdeclCall<XMLFileData*>(0xA1CE70, filePath, 0);
+	}
+
 	void Destroy()
 	{
 		GameHeapFree(data);
 		GameHeapFree(this);
 	}
 };
-
-__forceinline XMLFileData *GetXMLFileData(const char *filePath)
-{
-	return CdeclCall<XMLFileData*>(0xA1CE70, filePath, 0);
-}
 
 #define XML_CACHE_BASE 0x100000UL
 #define XML_CACHE_GROW 0x40000UL
@@ -116,32 +116,30 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 {
 	__asm
 	{
-		push	ebp
-		mov		ebp, esp
-		push	ecx
+		push	ebx
 		push	esi
 		push	edi
+		xor		ebx, ebx
 		xor		esi, esi
-		mov		edi, esi
-		lea		eax, [ebp-4]
-		mov		[eax], esi
-		mov		ecx, [ebp+8]
+		xor		edi, edi
+		mov		ecx, [esp+0x10]
 		cmp		dword ptr [ecx], '_pij'
 		jz		notCached
-		push	eax
+		push	ebx
+		push	esp
 		push	ecx
 		mov		ecx, offset s_cachedBaseFiles
 		call	UnorderedMap<const char*, CacheOffset>::Insert
+		pop		ebx
 		test	al, al
 		jnz		notCached
-		mov		eax, [ebp-4]
-		mov		esi, [eax+4]
+		mov		esi, [ebx+4]
 		test	esi, esi
 		jz		createData
 		push	esi
 		mov		ecx, offset s_baseFilesCache
 		mov		edx, [ecx]
-		add		edx, [eax]
+		add		edx, [ebx]
 		push	edx
 		lea		edx, [esi+1]
 		push	edx
@@ -155,13 +153,12 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		ALIGN 16
 	notCached:
 		push	0
-		push	dword ptr [ebp+8]
+		push	dword ptr [esp+0x14]
 		CALL_EAX(0xA1CE70)
 		add		esp, 8
 		test	eax, eax
 		jz		createData
-		mov		edx, [ebp-4]
-		test	edx, edx
+		test	ebx, ebx
 		jz		done
 		mov		edi, [eax]
 		test	edi, edi
@@ -169,8 +166,8 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		mov		esi, eax
 		mov		ecx, offset s_baseFilesCache
 		mov		eax, [ecx+8]
-		mov		[edx], eax
-		mov		[edx+4], edi
+		mov		[ebx], eax
+		mov		[ebx+4], edi
 		push	edi
 		push	dword ptr [esi+4]
 		call	XMLCache::Write
@@ -185,7 +182,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 	done:
 		pop		edi
 		pop		esi
-		leave
+		pop		ebx
 		retn
 	}
 }
@@ -219,18 +216,15 @@ __declspec(naked) void __fastcall ResolveTrait(XMLtoTileData *data, int EDX, UIn
 		push	ebp
 		mov		ebp, esp
 		mov		eax, [ecx+0xC]
+		mov		edx, [ecx]
 		test	eax, eax
-		cmovz	eax, [ecx]
+		cmovz	eax, edx
 		push	eax
 		sub		esp, 0x18
-		test	edi, edi
-		jz		skipLog
-		lea		ecx, [ebp+8]
-		call	PrintTraitEntry
-	skipLog:
 		mov		eax, 0x80000000
+		mov		edx, [ebp+0xC]
 		cmp		[ebp+0x10], 3
-		cmovz	eax, [ebp+0xC]
+		cmovz	eax, edx
 		mov		[ebp-0x1C], eax
 		movd	xmm0, eax
 		cvtdq2ps	xmm0, xmm0
@@ -526,6 +520,14 @@ __declspec(naked) void __fastcall ResolveTrait(XMLtoTileData *data, int EDX, UIn
 		call	FreeExtraString
 		ALIGN 16
 	done:
+		test	edi, edi
+		jnz		printLog
+		leave
+		retn	0xC
+		ALIGN 16
+	printLog:
+		lea		ecx, [ebp+8]
+		call	PrintTraitEntry
 		leave
 		retn	0xC
 	}
@@ -644,18 +646,6 @@ __declspec(naked) char __stdcall GetGMSTValue(char *result)
 		retn	4
 	}
 }
-
-const bool kValidForNumeric[] =
-{
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
 
 __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath, char *inData, UInt32 inLength)
 {
@@ -1078,6 +1068,19 @@ __declspec(naked) void TileTextApplyScaleHook()
 	}
 }
 
+const MappedPair<const char*, UInt32> kMenuNameToFile[] =
+{
+	{"BarterMenu", 0x10707B4}, {"BlackJackMenu", 0x1070C38}, {"CaravanMenu", 0x107170C}, {"CharGenMenu", 0x1071C5C}, {"CompanionWheelMenu", 0x1071DFC},
+	{"ComputersMenu", 0x10720E8}, {"ContainerMenu", 0x1072258}, {"DialogMenu", 0x107266C}, {"HackingMenu", 0x1072990}, {"LevelUpMenu", 0x1073D9C},
+	{"LoadingMenu", 0x1073F04}, {"LockPickMenu", 0x10744A0}, {"LoveTesterMenu", 0x10746DC}, {"MessageMenu", 0x1075724}, {"QuantityMenu", 0x10758C4},
+	{"RaceSexMenu", 0x10759BC}, {"RecipeMenu", 0x107054C}, {"RepairServicesMenu", 0x1075E9C}, {"RouletteMenu", 0x1076254}, {"SleepWaitMenu", 0x1076468},
+	{"SlotMachineMenu", 0x1076670}, {"SpecialBookMenu", 0x1076874}, {"StartMenu", 0x1076D8C}, {"TraitMenu", 0x1077A5C}, {"TraitSelectMenu", 0x1077B04},
+	{"TutorialMenu", 0x1077BA4}, {"VATSMenu", 0x1077D50}, {"HUDMainMenu", 0x107343C}, {"InventoryMenu", 0x1073A70}, {"ItemModMenu", 0x1073C34},
+	{"MapMenu", 0x1074DF8}, {"RepairMenu", 0x1075D14}, {"StatsMenu", 0x107730C}
+};
+
+const char *kTileTypeNames[] = {"menu", "rect", "image", "text", "hotrect", "nif", "radial", "template"};
+
 typedef UnorderedSet<char*> IncludePaths;
 typedef UnorderedMap<char*, IncludePaths> IncludeRefs;
 
@@ -1089,11 +1092,17 @@ struct TileName
 	~TileName() {free(name);}
 };
 
-void UIOLoad()
+void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 {
+	*(InterfaceManager**)0x11D8A80 = interfaceMgr;
+
 	void (*RegTraitID)(const char*, UInt32) = (void (*)(const char*, UInt32))0x9FF8A0;
 
+	RegTraitID("ge", kAction_gte);
 	RegTraitID("ne", kAction_neq);
+	RegTraitID("le", kAction_lte);
+
+	//	Register new operators
 	RegTraitID("neg", kAction_neg);
 	RegTraitID("recipr", kAction_recipr);
 	RegTraitID("land", kAction_land);
@@ -1117,13 +1126,14 @@ void UIOLoad()
 	if (*(UInt32*)0xA22244 == 0xA222E768)
 		SAFE_WRITE_BUF(0xA22244, "\x68\xAD\x0F\x00\x00\x8B\x8D\x4C\xFE\xFF");
 
-	UnorderedMap<const char*, UInt32> menuNameToFile({{"BarterMenu", 0x10707B4}, {"BlackJackMenu", 0x1070C38}, {"CaravanMenu", 0x107170C}, {"CharGenMenu", 0x1071C5C},
-		{"CompanionWheelMenu", 0x1071DFC}, {"ComputersMenu", 0x10720E8}, {"ContainerMenu", 0x1072258}, {"DialogMenu", 0x107266C}, {"HackingMenu", 0x1072990},
-		{"LevelUpMenu", 0x1073D9C}, {"LoadingMenu", 0x1073F04}, {"LockPickMenu", 0x10744A0}, {"LoveTesterMenu", 0x10746DC}, {"MessageMenu", 0x1075724},
-		{"QuantityMenu", 0x10758C4}, {"RaceSexMenu", 0x10759BC}, {"RecipeMenu", 0x107054C}, {"RepairServicesMenu", 0x1075E9C}, {"RouletteMenu", 0x1076254},
-		{"SleepWaitMenu", 0x1076468}, {"SlotMachineMenu", 0x1076670}, {"SpecialBookMenu", 0x1076874}, {"StartMenu", 0x1076D8C}, {"TraitMenu", 0x1077A5C},
-		{"TraitSelectMenu", 0x1077B04}, {"TutorialMenu", 0x1077BA4}, {"VATSMenu", 0x1077D50}, {"HUDMainMenu", 0x107343C}, {"InventoryMenu", 0x1073A70},
-		{"ItemModMenu", 0x1073C34}, {"MapMenu", 0x1074DF8}, {"RepairMenu", 0x1075D14}, {"StatsMenu", 0x107730C}});
+	//	Nuke HUDMainMenu/HardcoreMode/ set texts <zoom>
+	SafeWrite16(0x76F688, 0x20EB);
+	SafeWrite16(0x76F742, 0x1FEB);
+	SafeWrite16(0x76F824, 0x1FEB);
+	SafeWrite16(0x76F92D, 0x20EB);
+	SafeWrite16(0x76FA5E, 0x1FEB);
+
+	UnorderedMap<const char*, UInt32> menuNameToFile(kMenuNameToFile, 33);
 
 	char prefabsPath[0x80];
 	memcpy(prefabsPath, "Data\\menus\\prefabs\\duinvsettings.xml", 37);
@@ -1276,7 +1286,7 @@ void UIOLoad()
 		return;
 	}
 
-	UnorderedSet<const char*> tileTypes({"menu", "rect", "image", "text", "hotrect", "nif", "radial", "template"});;
+	UnorderedSet<const char*> tileTypes(kTileTypeNames, 8);
 
 	UInt32 length, lastOffset = 0, currOffset;
 	XMLFileData *fileData, *inclData;
@@ -1287,7 +1297,7 @@ void UIOLoad()
 	{
 		PrintLog("\n>>>>> Processing file '%s'\n", menuIter.Key() + 11);
 
-		fileData = GetXMLFileData(menuIter.Key());
+		fileData = XMLFileData::Get(menuIter.Key());
 		if (!fileData)
 		{
 			PrintLog("\tERROR: Could not open file > Skipping.\n");
@@ -1312,7 +1322,7 @@ void UIOLoad()
 							for (auto inclIter = findTile().Begin(); inclIter; ++inclIter)
 							{
 								StrCopy(prefabsPath + 19, *inclIter);
-								inclData = GetXMLFileData(prefabsPath);
+								inclData = XMLFileData::Get(prefabsPath);
 								if (!inclData)
 								{
 									PrintLog("\t! ERROR: Could not open '%s' > Skipping.\n", *inclIter);
@@ -1336,7 +1346,7 @@ void UIOLoad()
 				}
 				else if (length >= 12)
 				{
-					if (delim = SubStr(bgnPtr + 4, "name=", length - 4))
+					if (delim = SubStrCI(bgnPtr + 4, "name=", length - 4))
 					{
 						srchType = 1;
 						delim += 5;
@@ -1381,19 +1391,6 @@ void UIOLoad()
 
 		for (auto notFound = menuIter().Begin(); notFound; ++notFound)
 			PrintLog("\t! Menu element '%s' not found > Skipping.\n", notFound.Key());
-	}
-}
-
-class InterfaceManager;
-__declspec(naked) InterfaceManager* __fastcall InitInterfaceMngrHook(InterfaceManager *interfaceMgr)
-{
-	__asm
-	{
-		CALL_EAX(0x70A130)
-		push	eax
-		call	UIOLoad
-		pop		eax
-		retn
 	}
 }
 
@@ -2050,9 +2047,10 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 	}
 	PrintLog("UI Organizer v2.20\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
 
-	WriteRelCall(0x70A035, InitInterfaceMngrHook);
-	WriteRelCall(0xA01B87, ResolveXMLFileHook);
-	WriteRelCall(0xA02F44, GetXMLFileDataHook);
+	SAFE_WRITE_BUF(0x70A049, "\xC7\x45\xFC\xFF\xFF\xFF\xFF\x68\x5C\xA0\x70\x00");
+	WriteRelJump(0x70A055, (UInt32)UIOLoad);
+	WriteRelCall(0xA01B87, (UInt32)ResolveXMLFileHook);
+	WriteRelCall(0xA02F44, (UInt32)GetXMLFileDataHook);
 	SafeWrite8(0xA01B7E, 1);
 	SAFE_WRITE_BUF(0xA0968C, "\x8B\x45\xD4\x8B\x48\x08\x89\x4D\xD4\x8B\x55\xD0\x81\xEA\xD0\x07\x00\x00\x83\xFA\x29\x0F\x87\x5F\xFE\xFF\xFF\x8B\x85\x20\xFF\xFF\xFF\x89\x45\x94\xFF\x24\x95");
 	/*

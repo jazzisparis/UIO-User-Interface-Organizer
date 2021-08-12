@@ -50,22 +50,17 @@ __declspec(naked) void __fastcall MemZero(void *dest, UInt32 bsize)
 {
 	__asm
 	{
-		push	edi
 		test	ecx, ecx
 		jz		done
+		shr		edx, 2
+		jz		done
+		push	edi
 		mov		edi, ecx
 		xor		eax, eax
 		mov		ecx, edx
-		shr		ecx, 2
-		jz		write1
 		rep stosd
-	write1:
-		and		edx, 3
-		jz		done
-		mov		ecx, edx
-		rep stosb
-	done:
 		pop		edi
+	done:
 		retn
 	}
 }
@@ -288,42 +283,18 @@ __declspec(noinline) char __fastcall StrCompare(const char *lstr, const char *rs
 	return *rstr ? -1 : 0;
 }
 
-__declspec(noinline) char __fastcall StrBeginsCS(const char *lstr, const char *rstr)
+__declspec(noinline) bool __fastcall StrBeginsCI(const char *lstr, const char *rstr)
 {
-	if (!lstr || !rstr) return 0;
-	UInt32 length = StrLen(rstr);
-	while (length >= 4)
-	{
-		if (*(UInt32*)lstr != *(UInt32*)rstr)
-			return 0;
-		lstr += 4;
-		rstr += 4;
-		length -= 4;
-	}
-	while (length)
-	{
-		if (*lstr != *rstr)
-			return 0;
-		lstr++;
-		rstr++;
-		length--;
-	}
-	return *lstr ? 1 : 2;
-}
-
-__declspec(noinline) char __fastcall StrBeginsCI(const char *lstr, const char *rstr)
-{
-	if (!lstr || !rstr) return 0;
 	UInt32 length = StrLen(rstr);
 	while (length)
 	{
 		if (kCaseConverter[*(UInt8*)lstr] != kCaseConverter[*(UInt8*)rstr])
-			return 0;
+			return false;
 		lstr++;
 		rstr++;
 		length--;
 	}
-	return *lstr ? 1 : 2;
+	return true;
 }
 
 __declspec(naked) char* __fastcall FindChr(const char *str, char chr)
@@ -373,54 +344,23 @@ __declspec(naked) char* __fastcall FindChrR(const char *str, char chr)
 	}
 }
 
-__declspec(naked) char* __fastcall SubStr(const char *srcStr, const char *subStr, UInt32 length)
+char* __fastcall SubStrCI(const char *srcStr, const char *subStr, int length)
 {
-	__asm
+	int subLen = StrLen(subStr), srcLen = StrLen(srcStr) - subLen - length;
+	while (srcLen >= 0)
 	{
-		push	ebx
-		push	esi
-		push	edi
-		test	ecx, ecx
-		jz		retnNULL
-		test	edx, edx
-		jz		retnNULL
-		cmp		[edx], 0
-		jz		retnNULL
-		cmp		dword ptr [esp+0x10], 0
-		jz		retnNULL
-		mov		esi, ecx
-		mov		edi, edx
-		xor		eax, eax
-		mov		ebx, eax
-		jmp		subHead
-	mainNext:
-		dec		dword ptr [esp+0x10]
-		js		retnNULL
-		inc		esi
-		mov		ecx, esi
-		mov		edx, edi
-	subHead:
-		mov		al, [edx]
-		test	al, al
-		jnz		proceed
-		mov		eax, esi
-		jmp		done
-	proceed:
-		mov		bl, kCaseConverter[eax]
-		mov		al, [ecx]
-		cmp		bl, kCaseConverter[eax]
-		jnz		mainNext
-		inc		ecx
-		inc		edx
-		jmp		subHead
-	retnNULL:
-		xor		eax, eax
-	done:
-		pop		edi
-		pop		esi
-		pop		ebx
-		retn	4
+		int index = 0;
+		while (true)
+		{
+			if (kCaseConverter[((UInt8*)srcStr)[index]] != kCaseConverter[((UInt8*)subStr)[index]])
+				break;
+			if (++index == subLen)
+				return const_cast<char*>(srcStr);
+		}
+		srcStr++;
+		srcLen--;
 	}
+	return NULL;
 }
 
 __declspec(noinline) char* __fastcall GetNextToken(char *str, char delim)
@@ -835,7 +775,7 @@ __declspec(naked) void __stdcall WriteRelJump(UInt32 jumpSrc, UInt32 jumpTgt)
 	}
 }
 
-__declspec(naked) void __stdcall WriteRelCall(UInt32 patchAddr, void *procPtr)
+__declspec(naked) void __stdcall WriteRelCall(UInt32 patchAddr, UInt32 jumpTgt)
 {
 	__asm
 	{

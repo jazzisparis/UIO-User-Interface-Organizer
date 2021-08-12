@@ -102,15 +102,13 @@ UInt32 __fastcall StrHash(const char *inKey);
 
 char __fastcall StrCompare(const char *lstr, const char *rstr);
 
-char __fastcall StrBeginsCS(const char *lstr, const char *rstr);
-
-char __fastcall StrBeginsCI(const char *lstr, const char *rstr);
+bool __fastcall StrBeginsCI(const char *lstr, const char *rstr);
 
 char* __fastcall FindChr(const char *str, char chr);
 
 char* __fastcall FindChrR(const char *str, char chr);
 
-char* __fastcall SubStr(const char *srcStr, const char *subStr, UInt32 length);
+char* __fastcall SubStrCI(const char *srcStr, const char *subStr, int length);
 
 char* __fastcall GetNextToken(char *str, char delim);
 
@@ -202,7 +200,19 @@ void __stdcall SafeWriteBuf(UInt32 addr, void * data, UInt32 len);
 #define SAFE_WRITE_BUF(addr, data) SafeWriteBuf(addr, data, sizeof(data) - 1)
 
 void __stdcall WriteRelJump(UInt32 jumpSrc, UInt32 jumpTgt);
-void __stdcall WriteRelCall(UInt32 patchAddr, void *procPtr);
+void __stdcall WriteRelCall(UInt32 patchAddr, UInt32 jumpTgt);
+
+static const bool kValidForNumeric[] =
+{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
 
 static const double kDblPId180 = 0.017453292519943296, kDbl180dPI = 57.295779513082320877;
 double __vectorcall dPow(double base, double exponent);

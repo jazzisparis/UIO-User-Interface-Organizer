@@ -79,6 +79,7 @@ public:
 	UInt16		growSize;		// 0E
 };
 
+class InterfaceManager;
 class Tile;
 class TileExtra;
 
