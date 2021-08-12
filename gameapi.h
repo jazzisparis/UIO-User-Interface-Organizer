@@ -82,6 +82,53 @@ public:
 class Tile;
 class TileExtra;
 
+enum TileActionType
+{
+	kAction_copy = 0x7D0,
+	kAction_add,
+	kAction_sub,
+	kAction_mul,
+	kAction_div,
+	kAction_min,
+	kAction_max,
+	kAction_mod,
+	kAction_floor,
+	kAction_ceil,
+	kAction_abs,
+	kAction_round,
+	kAction_gt,
+	kAction_gte,
+	kAction_eq,
+	kAction_neq,
+	kAction_lt,
+	kAction_lte,
+	kAction_and,
+	kAction_or,
+	kAction_not,
+	kAction_onlyif,
+	kAction_onlyifnot,
+	kAction_ref,
+	kAction_begin,
+	kAction_end,
+	kAction_neg,
+	kAction_recipr,
+	kAction_land,
+	kAction_lor,
+	kAction_shl,
+	kAction_shr,
+	kAction_bt,
+	kAction_sqrt,
+	kAction_pow,
+	kAction_sin,
+	kAction_cos,
+	kAction_tan,
+	kAction_asin,
+	kAction_acos,
+	kAction_atan,
+	kAction_log,
+	kAction_MAX
+};
+
 struct TileValue
 {
 	UInt32		id;			// 00
@@ -92,6 +139,39 @@ struct TileValue
 };
 
 TileValue* __fastcall GetTileValue(Tile *tile, UInt32 typeID);
+
+struct NiString
+{
+	const char		*str;
+};
+
+struct XMLtoTileData
+{
+	struct ParsedXMLTag
+	{
+		UInt32		tagType;	// 00
+		float		value;		// 04
+		String		nameOrSrc;	// 08
+		union					// 10
+		{
+			UInt32	valueID;
+			Tile	*tmplTile;
+		};
+	};
+
+	struct TemplateData
+	{
+		NiString				templateName;	// 00
+		TileExtra				*tileExtra;		// 04
+		DList<ParsedXMLTag>		parsedTags;		// 08
+	};
+
+	TemplateData			*data;		// 00
+	ListNode<TemplateData>	list04;		// 04
+	UInt32					unk0C;		// 0C
+	UInt8					byte10;		// 10
+	UInt8					pad11[3];	// 11
+};
 
 struct ModInfo
 {

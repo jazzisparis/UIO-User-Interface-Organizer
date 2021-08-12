@@ -1,5 +1,5 @@
 #pragma once
-#pragma warning(disable: 4244)
+#pragma warning(disable: 4018 4221 4244 4267 4288 4302 4305 4311 4312 4733 4838 4996)
 
 #include <windows.h>
 #include <new>
@@ -156,35 +156,28 @@ public:
 
 class FileStream
 {
-protected:
-	HANDLE		theFile;
-	UInt32		streamLength;
-	UInt32		streamOffset;
-
 public:
-	FileStream() : theFile(INVALID_HANDLE_VALUE) {}
-	~FileStream() {if (Good()) Close();}
+	FILE		*theFile;
 
-	bool Good() const {return theFile != INVALID_HANDLE_VALUE;}
-	UInt32 GetLength() const {return streamLength;}
-	UInt32 GetOffset() const {return streamOffset;}
-	bool HitEOF() const {return streamOffset >= streamLength;}
+	FileStream() : theFile(nullptr) {}
+	FileStream(const char *filePath);
+	~FileStream() {if (theFile) fclose(theFile);}
 
 	bool Open(const char *filePath);
-	bool OpenAt(const char *filePath, UInt32 inOffset);
-	bool Create(const char *filePath, UInt32 attr = FILE_ATTRIBUTE_NORMAL);
 	bool OpenWrite(const char *filePath);
 
 	void Close()
 	{
-		CloseHandle(theFile);
-		theFile = INVALID_HANDLE_VALUE;
+		fclose(theFile);
+		theFile = nullptr;
 	}
 
-	void ReadBuf(void *outData, UInt32 inLength);
+	explicit operator bool() const {return theFile != nullptr;}
 
+	UInt32 GetLength();
+	void ReadBuf(void *outData, UInt32 inLength);
 	void WriteBuf(const void *inData, UInt32 inLength);
-	void SetOffset(UInt32 inOffset);
+	int WriteFmtStr(const char *fmt, ...);
 };
 
 void PrintLog(const char *fmt, ...);
@@ -211,10 +204,12 @@ void __stdcall SafeWriteBuf(UInt32 addr, void * data, UInt32 len);
 void __stdcall WriteRelJump(UInt32 jumpSrc, UInt32 jumpTgt);
 void __stdcall WriteRelCall(UInt32 patchAddr, void *procPtr);
 
-
-static const double kDblPId180 = 0.017453292519943295;
+static const double kDblPId180 = 0.017453292519943296, kDbl180dPI = 57.295779513082320877;
 double __vectorcall dPow(double base, double exponent);
 double __vectorcall dSin(double angle);
 double __vectorcall dCos(double angle);
 double __vectorcall dTan(double angle);
-double __vectorcall dLog(double angle);
+double __vectorcall dASin(double value);
+double __vectorcall dACos(double value);
+double __vectorcall dATan(double value);
+double __vectorcall dLog(double value);

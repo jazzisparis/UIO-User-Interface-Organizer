@@ -928,13 +928,10 @@ public:
 		return 0;
 	}
 
-	T_Data Pop()
+	void Pop()
 	{
-		if (!numItems) return NULL;
-		numItems--;
-		T_Data *pEnd = End();
-		pEnd->~T_Data();
-		return *pEnd;
+		if (numItems)
+			data[--numItems].~T_Data();
 	}
 
 	void Clear()

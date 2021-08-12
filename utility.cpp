@@ -624,97 +624,66 @@ bool __fastcall FileExists(const char *path)
 	return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+FileStream::FileStream(const char *filePath)
+{
+	theFile = fopen(filePath, "rb");
+}
+
 bool FileStream::Open(const char *filePath)
 {
-	theFile = CreateFileA(filePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (theFile == INVALID_HANDLE_VALUE)
-		return false;
-	streamLength = GetFileSize(theFile, NULL);
-	streamOffset = 0;
-	return true;
-}
-
-bool FileStream::OpenAt(const char *filePath, UInt32 inOffset)
-{
-	theFile = CreateFileA(filePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (theFile == INVALID_HANDLE_VALUE)
-		return false;
-	streamLength = GetFileSize(theFile, NULL);
-	if (inOffset > streamLength)
-	{
-		Close();
-		return false;
-	}
-	streamOffset = inOffset;
-	if (streamOffset)
-		SetFilePointer(theFile, streamOffset, NULL, FILE_BEGIN);
-	return true;
-}
-
-bool FileStream::Create(const char *filePath, UInt32 attr)
-{
-	theFile = CreateFileA(filePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, attr, NULL);
-	streamOffset = streamLength = 0;
-	return theFile != INVALID_HANDLE_VALUE;
+	theFile = fopen(filePath, "rb");
+	return theFile != nullptr;
 }
 
 bool FileStream::OpenWrite(const char *filePath)
 {
-	theFile = CreateFileA(filePath, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (theFile == INVALID_HANDLE_VALUE)
-		return false;
-	streamOffset = streamLength = GetFileSize(theFile, NULL);
-	SetFilePointer(theFile, streamLength, NULL, FILE_BEGIN);
-	return true;
+	theFile = fopen(filePath, "wb");
+	return theFile != nullptr;
+}
+
+UInt32 FileStream::GetLength()
+{
+	fseek(theFile, 0, SEEK_END);
+	UInt32 result = ftell(theFile);
+	rewind(theFile);
+	return result;
 }
 
 void FileStream::ReadBuf(void *outData, UInt32 inLength)
 {
-	UInt32 bytesRead;
-	ReadFile(theFile, outData, inLength, &bytesRead, NULL);
-	streamOffset += bytesRead;
+	fread(outData, inLength, 1, theFile);
 }
 
-__declspec(noinline) void FileStream::WriteBuf(const void *inData, UInt32 inLength)
+void FileStream::WriteBuf(const void *inData, UInt32 inLength)
 {
-	if (streamOffset > streamLength)
-		SetEndOfFile(theFile);
-	UInt32 bytesWritten;
-	WriteFile(theFile, inData, inLength, &bytesWritten, NULL);
-	streamOffset += bytesWritten;
-	if (streamLength < streamOffset)
-		streamLength = streamOffset;
+	fwrite(inData, inLength, 1, theFile);
 }
 
-void FileStream::SetOffset(UInt32 inOffset)
+int FileStream::WriteFmtStr(const char *fmt, ...)
 {
-	if (inOffset > streamLength)
-		streamOffset = streamLength;
-	else streamOffset = inOffset;
-	SetFilePointer(theFile, streamOffset, NULL, FILE_BEGIN);
+	va_list args;
+	va_start(args, fmt);
+	int iWritten = vfprintf(theFile, fmt, args);
+	va_end(args);
+	return iWritten;
 }
 
 extern FileStream s_log;
 
 void PrintLog(const char *fmt, ...)
 {
-	char buffer[0x200];
 	va_list args;
 	va_start(args, fmt);
-	int length = vsprintf_s(buffer, 0x200, fmt, args);
-	if (length >= 0)
-	{
-		buffer[length] = '\n';
-		s_log.WriteBuf(buffer, length + 1);
-	}
+	vfprintf(s_log.theFile, fmt, args);
 	va_end(args);
+	fflush(s_log.theFile);
 }
 
 LineIterator::LineIterator(const char *filePath, char *buffer)
 {
 	dataPtr = buffer;
-	FileStream sourceFile;
-	if (!sourceFile.Open(filePath))
+	FileStream sourceFile(filePath);
+	if (!sourceFile)
 	{
 		*buffer = 3;
 		return;
@@ -913,7 +882,22 @@ double __vectorcall dTan(double angle)
 	return tan(angle);
 }
 
-double __vectorcall dLog(double angle)
+double __vectorcall dASin(double value)
 {
-	return log(angle);
+	return asin(value);
+}
+
+double __vectorcall dACos(double value)
+{
+	return acos(value);
+}
+
+double __vectorcall dATan(double value)
+{
+	return atan(value);
+}
+
+double __vectorcall dLog(double value)
+{
+	return log(value);
 }

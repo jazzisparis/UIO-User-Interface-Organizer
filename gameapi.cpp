@@ -9,13 +9,13 @@ __declspec(naked) void String::Set(const char *src)
 		mov		ecx, [esp+8]
 		call	StrLen
 		mov		[esi+4], ax
-		test	ax, ax
+		test	eax, eax
 		jz		nullStr
 		mov		ecx, [esi]
 		cmp		word ptr [esi+6], ax
 		jnb		doCopy
 		mov		[esi+6], ax
-		inc		ax
+		inc		eax
 		push	eax
 		test	ecx, ecx
 		jz		doAlloc
@@ -33,7 +33,8 @@ __declspec(naked) void String::Set(const char *src)
 		push	ecx
 		call	_memcpy
 		add		esp, 0xC
-		jmp		done
+		pop		esi
+		retn	4
 	nullStr:
 		mov		eax, [esi]
 		test	ecx, ecx
@@ -41,7 +42,8 @@ __declspec(naked) void String::Set(const char *src)
 		test	eax, eax
 		jz		done
 		mov		[eax], 0
-		jmp		done
+		pop		esi
+		retn	4
 	nullSrc:
 		mov		word ptr [esi+6], 0
 		test	eax, eax
@@ -80,6 +82,7 @@ __declspec(naked) NiTMap::Entry *NiTMap::Lookup(UInt32 key)
 		jnz		done
 		mov		edi, [edi]
 		jmp		findEntry
+		ALIGN 16
 	done:
 		mov		eax, edi
 		pop		edi
