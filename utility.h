@@ -21,6 +21,16 @@ typedef signed long long SInt64;
 typedef void* (__cdecl *memcpy_t)(void*, const void*, size_t);
 extern memcpy_t _memcpy, _memmove;
 
+#define ADDR_GameHeapAlloc			0xAA3E40
+#define ADDR_GameHeapFree			0xAA4060
+#define ADDR_CreateTileFromXML		0xA01B00
+#define ADDR_GetXMLFileData			0xA1CE70
+#define ADDR_GetAvailableLinkedNode	0x43A010
+#define ADDR_ResolveXMLIncludes		0xA02D40
+#define ADDR_InitXMLtoTileData		0xA0AC80
+#define ADDR_strcmp					0xEC6DA0
+#define ADDR_GetRandomInt			0xAA5230
+
 #define CALL_EAX(addr) __asm mov eax, addr __asm call eax
 #define JMP_EAX(addr)  __asm mov eax, addr __asm jmp eax
 
@@ -53,8 +63,8 @@ extern memcpy_t _memcpy, _memmove;
 #define NOP_0xE NOP_0x7 NOP_0x7
 #define NOP_0xF NOP_0x8 NOP_0x7
 
-#define GAME_HEAP_ALLOC __asm mov ecx, 0x11F6238 CALL_EAX(0xAA3E40)
-#define GAME_HEAP_FREE  __asm mov ecx, 0x11F6238 CALL_EAX(0xAA4060)
+#define GAME_HEAP_ALLOC __asm mov ecx, 0x11F6238 CALL_EAX(ADDR_GameHeapAlloc)
+#define GAME_HEAP_FREE  __asm mov ecx, 0x11F6238 CALL_EAX(ADDR_GameHeapFree)
 
 template <typename T_Ret = void, typename ...Args>
 __forceinline T_Ret ThisCall(UInt32 _addr, void *_this, Args ...args)
@@ -74,8 +84,8 @@ __forceinline T_Ret CdeclCall(UInt32 _addr, Args ...args)
 	return ((T_Ret (__cdecl *)(Args...))_addr)(std::forward<Args>(args)...);
 }
 
-#define GameHeapAlloc(size) ThisCall<void*, UInt32>(0xAA3E40, (void*)0x11F6238, size)
-#define GameHeapFree(ptr) ThisCall<void, void*>(0xAA4060, (void*)0x11F6238, ptr)
+#define GameHeapAlloc(size) ThisCall<void*, UInt32>(ADDR_GameHeapAlloc, (void*)0x11F6238, size)
+#define GameHeapFree(ptr) ThisCall<void, void*>(ADDR_GameHeapFree, (void*)0x11F6238, ptr)
 
 class PrimitiveCS
 {
@@ -112,8 +122,6 @@ char* __fastcall SubStrCI(const char *srcStr, const char *subStr, int length);
 
 char* __fastcall GetNextToken(char *str, char delim);
 
-char* __fastcall GetNextToken(char *str, const char *delims);
-
 char* __fastcall CopyString(const char *key);
 
 int __fastcall StrToInt(const char *str);
@@ -125,14 +133,12 @@ bool __fastcall FileExists(const char *path);
 class DirectoryIterator
 {
 	HANDLE				handle;
-	WIN32_FIND_DATAA	fndData;
+	WIN32_FIND_DATA		fndData;
 
 public:
-	DirectoryIterator(const char *path) : handle(FindFirstFileA(path, &fndData)) {}
+	DirectoryIterator(const char *path) : handle(FindFirstFile(path, &fndData)) {}
 	~DirectoryIterator() {Close();}
 
-	bool End() const {return handle == INVALID_HANDLE_VALUE;}
-	void Next() {if (!FindNextFileA(handle, &fndData)) Close();}
 	bool IsFile() const {return !(fndData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);}
 	bool IsFolder() const
 	{
@@ -141,7 +147,6 @@ public:
 		if (fndData.cFileName[1] != '.') return fndData.cFileName[1] != 0;
 		return fndData.cFileName[2] != 0;
 	}
-	const char *Get() const {return fndData.cFileName;}
 	void Close()
 	{
 		if (handle != INVALID_HANDLE_VALUE)
@@ -150,19 +155,32 @@ public:
 			handle = INVALID_HANDLE_VALUE;
 		}
 	}
+
+	explicit operator bool() const {return handle != INVALID_HANDLE_VALUE;}
+	const char* operator*() const {return fndData.cFileName;}
+	void operator++() {if (!FindNextFile(handle, &fndData)) Close();}
 };
 
 class FileStream
 {
-public:
 	FILE		*theFile;
 
+public:
 	FileStream() : theFile(nullptr) {}
-	FileStream(const char *filePath);
+	FileStream(const char *filePath) : theFile(fopen(filePath, "rb")) {}
 	~FileStream() {if (theFile) fclose(theFile);}
 
-	bool Open(const char *filePath);
-	bool OpenWrite(const char *filePath);
+	bool Open(const char *filePath)
+	{
+		theFile = fopen(filePath, "rb");
+		return theFile != nullptr;
+	}
+
+	bool OpenWrite(const char *filePath)
+	{
+		theFile = fopen(filePath, "wb");
+		return theFile != nullptr;
+	}
 
 	void Close()
 	{
@@ -170,27 +188,46 @@ public:
 		theFile = nullptr;
 	}
 
+	operator FILE*() const {return theFile;}
 	explicit operator bool() const {return theFile != nullptr;}
 
-	UInt32 GetLength();
-	void ReadBuf(void *outData, UInt32 inLength);
-	void WriteBuf(const void *inData, UInt32 inLength);
-	int WriteFmtStr(const char *fmt, ...);
+	UInt32 GetLength()
+	{
+		fseek(theFile, 0, SEEK_END);
+		UInt32 result = ftell(theFile);
+		rewind(theFile);
+		return result;
+	}
+
+	void ReadBuf(void *outData, UInt32 inLength)
+	{
+		fread(outData, inLength, 1, theFile);
+	}
+
+	void WriteBuf(const void *inData, UInt32 inLength)
+	{
+		fwrite(inData, inLength, 1, theFile);
+	}
 };
 
 void PrintLog(const char *fmt, ...);
 
 class LineIterator
 {
-protected:
 	char	*dataPtr;
 
 public:
 	LineIterator(const char *filePath, char *buffer);
 
-	bool End() const {return *dataPtr == 3;}
-	void Next();
-	char *Get() {return dataPtr;}
+	explicit operator bool() const {return *dataPtr != 3;}
+	char* operator*() {return dataPtr;}
+	void operator++()
+	{
+		while (*dataPtr)
+			dataPtr++;
+		while (!*dataPtr)
+			dataPtr++;
+	}
 };
 
 void __stdcall SafeWrite8(UInt32 addr, UInt32 data);

@@ -127,6 +127,7 @@ template <typename T_Key, typename T_Data, const UInt32 _default_bucket_count = 
 	using H_Key = HashedKey<T_Key>;
 	using Key_Arg = std::conditional_t<std::is_scalar_v<T_Key>, T_Key, const T_Key&>;
 	using Data_Arg = std::conditional_t<std::is_scalar_v<T_Data>, T_Data, T_Data&>;
+	using M_Pair = const MappedPair<T_Key, T_Data>;
 
 	struct Entry
 	{
@@ -250,7 +251,7 @@ template <typename T_Key, typename T_Data, const UInt32 _default_bucket_count = 
 
 public:
 	UnorderedMap(UInt32 _numBuckets = _default_bucket_count) : buckets(nullptr), numBuckets(_numBuckets), numEntries(0) {}
-	UnorderedMap(const MappedPair<T_Key, T_Data> *inList, UInt32 size) : buckets(nullptr), numBuckets(size), numEntries(0) {InsertList(inList, size);}
+	UnorderedMap(M_Pair *inList, UInt32 size) : buckets(nullptr), numBuckets(size), numEntries(0) {InsertList(inList, size);}
 	~UnorderedMap()
 	{
 		if (!buckets) return;
@@ -312,7 +313,7 @@ public:
 		return value;
 	}
 
-	void InsertList(const MappedPair<T_Key, T_Data> *inList, UInt32 size)
+	void InsertList(M_Pair *inList, UInt32 size)
 	{
 		T_Data *outData;
 		for (; size; size--, inList++)

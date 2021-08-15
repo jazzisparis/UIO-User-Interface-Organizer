@@ -382,32 +382,6 @@ __declspec(noinline) char* __fastcall GetNextToken(char *str, char delim)
 	return str;
 }
 
-__declspec(noinline) char* __fastcall GetNextToken(char *str, const char *delims)
-{
-	if (!str) return NULL;
-	bool table[0x100];
-	MemZero(table, 0x100);
-	UInt8 curr;
-	while (curr = *delims)
-	{
-		table[curr] = true;
-		delims++;
-	}
-	bool found = false;
-	while (curr = *str)
-	{
-		if (table[curr])
-		{
-			*str = 0;
-			found = true;
-		}
-		else if (found)
-			break;
-		str++;
-	}
-	return str;
-}
-
 __declspec(naked) int __fastcall StrToInt(const char *str)
 {
 	__asm
@@ -560,52 +534,8 @@ __declspec(naked) char* __fastcall CopyString(const char *key)
 
 bool __fastcall FileExists(const char *path)
 {
-	UInt32 attr = GetFileAttributesA(path);
+	UInt32 attr = GetFileAttributes(path);
 	return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-FileStream::FileStream(const char *filePath)
-{
-	theFile = fopen(filePath, "rb");
-}
-
-bool FileStream::Open(const char *filePath)
-{
-	theFile = fopen(filePath, "rb");
-	return theFile != nullptr;
-}
-
-bool FileStream::OpenWrite(const char *filePath)
-{
-	theFile = fopen(filePath, "wb");
-	return theFile != nullptr;
-}
-
-UInt32 FileStream::GetLength()
-{
-	fseek(theFile, 0, SEEK_END);
-	UInt32 result = ftell(theFile);
-	rewind(theFile);
-	return result;
-}
-
-void FileStream::ReadBuf(void *outData, UInt32 inLength)
-{
-	fread(outData, inLength, 1, theFile);
-}
-
-void FileStream::WriteBuf(const void *inData, UInt32 inLength)
-{
-	fwrite(inData, inLength, 1, theFile);
-}
-
-int FileStream::WriteFmtStr(const char *fmt, ...)
-{
-	va_list args;
-	va_start(args, fmt);
-	int iWritten = vfprintf(theFile, fmt, args);
-	va_end(args);
-	return iWritten;
 }
 
 extern FileStream s_log;
@@ -614,40 +544,81 @@ void PrintLog(const char *fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
-	vfprintf(s_log.theFile, fmt, args);
+	vfprintf(s_log, fmt, args);
 	va_end(args);
-	fflush(s_log.theFile);
+	fflush(s_log);
 }
 
-LineIterator::LineIterator(const char *filePath, char *buffer)
+__declspec(naked) LineIterator::LineIterator(const char *filePath, char *buffer)
 {
-	dataPtr = buffer;
-	FileStream sourceFile(filePath);
-	if (!sourceFile)
+	__asm
 	{
-		*buffer = 3;
-		return;
+		push	ebx
+		mov		ebx, ecx
+		mov		edx, [esp+0xC]
+		mov		[ebx], edx
+		push	'br'
+		push	esp
+		push	dword ptr [esp+0x10]
+		call	fopen
+		add		esp, 0xC
+		test	eax, eax
+		jz		openFail
+		push	esi
+		push	edi
+		push	SEEK_END
+		push	0
+		push	eax
+		call	fseek
+		call	ftell
+		mov		edi, eax
+		call	rewind
+		push	1
+		push	edi
+		push	dword ptr [ebx]
+		call	fread
+		add		esp, 0xC
+		call	fclose
+		add		esp, 0xC
+		mov		esi, [ebx]
+		mov		word ptr [esi+edi], 0x300
+		dec		esi
+		ALIGN 16
+	iterHead:
+		dec		edi
+		js		iterEnd
+		inc		esi
+		mov		al, [esi]
+		cmp		al, '\r'
+		ja		iterHead
+		jz		nullTerm
+		cmp		al, '\n'
+		jnz		iterHead
+	nullTerm:
+		mov		[esi], 0
+		jmp		iterHead
+		NOP_0x9
+	iterEnd:
+		mov		esi, [ebx]
+	findBgn:
+		cmp		[esi], 0
+		jnz		done
+		inc		esi
+		jmp		findBgn
+		ALIGN 16
+	done:
+		mov		[ebx], esi
+		pop		edi
+		pop		esi
+		pop		ebx
+		retn	8
+		ALIGN 16
+	openFail:
+		mov		edx, [ebx]
+		mov		[edx], 3
+		pop		ebx
+		retn	8
 	}
-	UInt32 length = sourceFile.GetLength();
-	sourceFile.ReadBuf(buffer, length);
-	*(UInt16*)(buffer + length) = 0x300;
-	while (length)
-	{
-		length--;
-		if ((*buffer == '\n') || (*buffer == '\r'))
-			*buffer = 0;
-		buffer++;
-	}
-	while (!*dataPtr)
-		dataPtr++;
-}
-
-void LineIterator::Next()
-{
-	while (*dataPtr)
-		dataPtr++;
-	while (!*dataPtr)
-		dataPtr++;
 }
 
 __declspec(naked) void __stdcall SafeWrite8(UInt32 addr, UInt32 data)

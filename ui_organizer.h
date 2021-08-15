@@ -11,7 +11,7 @@ struct XMLFileData
 
 	__forceinline static XMLFileData *Get(const char *filePath)
 	{
-		return CdeclCall<XMLFileData*>(0xA1CE70, filePath, 0);
+		return CdeclCall<XMLFileData*>(ADDR_GetXMLFileData, filePath, 0);
 	}
 
 	void Destroy()
@@ -70,6 +70,7 @@ UnorderedMap<const char*, XMLtoTileData*> s_cachedParsedData(0x20);
 bool s_debugMode = false;
 char s_debugPath[0x80] = "uio_debug\\";
 const char *s_logPath = "ui_organizer.log",
+kTempXMLFile[] = "jip_temp.xml",
 *kErrorStrings[] =
 {
 	"<!>\t\tExpected: 'name=' or 'src='\n",
@@ -93,8 +94,8 @@ FILE* __stdcall InitDebugLog(const char *filePath, XMLFileData *fileData)
 	s_debugLog.WriteBuf(fileData->data, fileData->length);
 	s_debugLog.Close();
 	memcpy(pathEnd, ".log", 5);
-	s_debugLog.theFile = fopen(s_debugPath, "wb");
-	return s_debugLog.theFile;
+	s_debugLog.OpenWrite(s_debugPath);
+	return s_debugLog;
 }
 
 void __fastcall PrintTraitEntry(UInt32 *args)
@@ -102,13 +103,35 @@ void __fastcall PrintTraitEntry(UInt32 *args)
 	switch (args[2])
 	{
 		case 3:
-			fprintf(s_debugLog.theFile, "%04X\t#%04X\n", args[0], args[1]);
+			fprintf(s_debugLog, "%04X\t#%04X\n", args[0], args[1]);
 			break;
 		case 1:
-			fprintf(s_debugLog.theFile, "%04X\t%.4f\n", args[0], *(float*)(args + 1));
+			fprintf(s_debugLog, "%04X\t%.4f\n", args[0], *(float*)(args + 1));
 			break;
 		default:
-			fprintf(s_debugLog.theFile, "%04X\t\"%s\"\n", args[0], (char*)args[1]);
+			fprintf(s_debugLog, "%04X\t\"%s\"\n", args[0], (char*)args[1]);
+	}
+}
+
+XMLFileData *s_externFileData = nullptr;
+
+__declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const char *dataStr)
+{
+	__asm
+	{
+		push	dword ptr [esp+8]
+		push	offset kTempXMLFile
+		CALL_EAX(ADDR_GetXMLFileData)
+		mov		s_externFileData, eax
+		test	eax, eax
+		jz		done
+		mov		ecx, [esp+0xC]
+		CALL_EAX(ADDR_CreateTileFromXML)
+		pop		ecx
+		retn	8
+	done:
+		add		esp, 8
+		retn	8
 	}
 }
 
@@ -119,15 +142,11 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		push	ebx
 		push	esi
 		push	edi
-		xor		ebx, ebx
 		xor		esi, esi
 		xor		edi, edi
-		mov		ecx, [esp+0x10]
-		cmp		dword ptr [ecx], '_pij'
-		jz		notCached
-		push	ebx
+		push	esi
 		push	esp
-		push	ecx
+		push	dword ptr [esp+0x18]
 		mov		ecx, offset s_cachedBaseFiles
 		call	UnorderedMap<const char*, CacheOffset>::Insert
 		pop		ebx
@@ -135,7 +154,8 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		jnz		notCached
 		mov		esi, [ebx+4]
 		test	esi, esi
-		jz		createData
+		cmovz	ebx, esi
+		jz		notCached
 		push	esi
 		mov		ecx, offset s_baseFilesCache
 		mov		edx, [ecx]
@@ -154,7 +174,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 	notCached:
 		push	0
 		push	dword ptr [esp+0x14]
-		CALL_EAX(0xA1CE70)
+		CALL_EAX(ADDR_GetXMLFileData)
 		add		esp, 8
 		test	eax, eax
 		jz		createData
@@ -495,7 +515,7 @@ __declspec(naked) void __fastcall ResolveTrait(XMLtoTileData *data, int EDX, UIn
 		mov		ecx, [ebp-4]
 		add		ecx, 8
 		mov		[ebp-0x1C], ecx
-		CALL_EAX(0x43A010)
+		CALL_EAX(ADDR_GetAvailableLinkedNode)
 		mov		ecx, [ebp-0xC]
 		mov		[eax+8], ecx
 		mov		ecx, [ebp-0x1C]
@@ -651,13 +671,9 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 {
 	__asm
 	{
-		xor		edx, edx
-		mov		eax, [esp+4]
-		cmp		dword ptr [eax], '_pij'
-		jz		notCached
-		push	edx
+		push	0
 		push	esp
-		push	eax
+		push	dword ptr [esp+0xC]
 		mov		ecx, offset s_cachedParsedData
 		call	UnorderedMap<const char*, XMLtoTileData*>::Insert
 		pop		edx
@@ -665,7 +681,9 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		jnz		notCached
 		mov		eax, [edx]
 		test	eax, eax
+		cmovz	edx, eax
 		jz		notCached
+		mov		[ebp-0x11], 1
 		retn
 		ALIGN 16
 	notCached:
@@ -677,17 +695,21 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		push	edi
 		mov		esi, edx
 		xor		edi, edi
+		mov		eax, s_externFileData
+		mov		s_externFileData, edi
+		test	eax, eax
+		jnz		hasData
 		push	0
 		push	dword ptr [ebp+8]
 		call	GetXMLFileDataHook
 		add		esp, 8
+	hasData:
 		mov		[ebp-4], eax
 		cmp		dword ptr [eax+4], 0
 		jz		skipClose
-		mov		ebx, eax
 		push	eax
-		CALL_EAX(0xA02D40)
-		pop		ecx
+		CALL_EAX(ADDR_ResolveXMLIncludes)
+		pop		ebx
 		cmp		s_debugMode, 0
 		jz		notDebug
 		test	esi, esi
@@ -696,20 +718,20 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		push	dword ptr [ebp+8]
 		call	InitDebugLog
 		mov		edi, eax
-		ALIGN 16
 	notDebug:
+		pxor	xmm0, xmm0
+		movups	[ebp-0x14], xmm0
 		push	0x14
 		GAME_HEAP_ALLOC
 		mov		ecx, eax
-		CALL_EAX(0xA0AC80)
+		CALL_EAX(ADDR_InitXMLtoTileData)
 		test	esi, esi
 		jz		skipCache
 		mov		[esi], eax
-		ALIGN 16
+		mov		ecx, [ebp]
+		mov		[ecx-0x11], 1
 	skipCache:
 		mov		esi, eax
-		pxor	xmm0, xmm0
-		movups	[ebp-0x14], xmm0
 		mov		ebx, [ebx+4]
 		dec		ebx
 		ALIGN 16
@@ -1084,12 +1106,15 @@ const char *kTileTypeNames[] = {"menu", "rect", "image", "text", "hotrect", "nif
 typedef UnorderedSet<char*> IncludePaths;
 typedef UnorderedMap<char*, IncludePaths> IncludeRefs;
 
-struct TileName
+class TileName
 {
 	char		*name;
 
-	TileName(char *inName) : name(CopyString(inName)) {}
+public:
+	TileName(const char *inName) : name(CopyString(inName)) {}
 	~TileName() {free(name);}
+
+	operator char*() const {return name;}
 };
 
 void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
@@ -1119,6 +1144,13 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 	RegTraitID("acos", kAction_acos);
 	RegTraitID("atan", kAction_atan);
 	RegTraitID("log", kAction_log);
+	RegTraitID("rand", kAction_rand);
+
+	s_cachedBaseFiles[kTempXMLFile] = {};
+
+	for (UInt32 nameAddr : {0x107343C, 0x1073A70, 0x1073C34, 0x1074DF8, 0x1075D14, 0x107730C})
+		s_cachedParsedData[(const char*)nameAddr] = nullptr;
+	s_cachedParsedData[kTempXMLFile] = nullptr;
 
 	SAFE_WRITE_BUF(0xA03923, "\x8B\x45\x08\x3D\xB7\x0F\x00\x00\x72\x50\x3D\xF7\x0F\x00\x00\x74\x07\x3D\xBE\x0F\x00\x00\x77\x42\x8B\x45\xCC\xF6\x40\x30\x02\x75\x0B\x80\x48\x30\x02\x50\xE8\x42\x3D\x00\x00\x58\xC9\xC2\x0C\x00");
 	SafeWrite8(0xA223D2, 0xAC);
@@ -1133,23 +1165,29 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 	SafeWrite16(0x76F92D, 0x20EB);
 	SafeWrite16(0x76FA5E, 0x1FEB);
 
-	UnorderedMap<const char*, UInt32> menuNameToFile(kMenuNameToFile, 33);
+	CdeclCall(0x476C00);
 
-	char prefabsPath[0x80];
-	memcpy(prefabsPath, "Data\\menus\\prefabs\\duinvsettings.xml", 37);
-	bool darnUI = FileExists(prefabsPath);
-	if (darnUI) PrintLog("* Darnified UI detected.\n\n");
+	PrintLog("--------------------------------\n*** Checking supported files ***\n--------------------------------\n\n");
+
+	UnorderedMap<const char*, UInt32> menuNameToFile(kMenuNameToFile, 33);
 
 	DataHandler *dataHandler = *(DataHandler**)0x11C3F2C;
 	UnorderedMap<char*, IncludeRefs> injectLists;
-	char uioPath[0x50], menusPath[0x80], *readBuffer = (char*)malloc(0x2000), *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
-	bool condLine, skipCond, evalRes, skipExpr, isOper, operAND, not, tempRes;
+	char uioPath[0x50], menusPath[0x80], prefabsPath[0x80], *readBuffer = (char*)malloc(0x2000), *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
+	bool condLine, skipCond, cndEvalStack[0x10], expectANDOR, not, tempRes;
+	UInt32 cndStackLevel, cndSkipLevel, cndToken;
 	memcpy(uioPath, "Data\\uio\\public\\*.txt", 22);
 	DirectoryIterator pubIter(uioPath);
 	uioPath[9] = 0;
 	memcpy(menusPath, "Data\\menus\\", 12);
 
-	PrintLog("--------------------------------\n*** Checking supported files ***\n--------------------------------\n");
+	memcpy(prefabsPath, "Data\\menus\\prefabs\\duinvsettings.xml", 37);
+	bool bDarnUI = FileExists(prefabsPath);
+	memcpy(prefabsPath + 19, "VUI+\\settings.xml", 18);
+	bool bVUIplus = FileExists(prefabsPath);
+	bool bOneHUD = dataHandler->IsModLoaded("oHUD.esm");
+
+	PrintLog("[%c] Darnified UI\n[%c] Vanilla UI Plus (VUI+)\n[%c] One HUD (oHUD)\n", bDarnUI ? 'x' : ' ', bVUIplus ? 'x' : ' ', bOneHUD ? 'x' : ' ');
 
 	do
 	{
@@ -1157,15 +1195,15 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			memcpy(uioPath + 9, "supported.txt", 14);
 		else
 		{
-			if (pubIter.End()) break;
-			StrCopy(StrLenCopy(uioPath + 9, "public\\", 7), pubIter.Get());
-			pubIter.Next();
+			if (!pubIter) break;
+			StrCopy(StrLenCopy(uioPath + 9, "public\\", 7), *pubIter);
+			++pubIter;
 		}
 
 		PrintLog("\n>>>>> Processing file '%s'\n", uioPath + 9);
 		LineIterator lineIter(uioPath, readBuffer);
 
-		if (lineIter.End())
+		if (!lineIter)
 		{
 			PrintLog("\tERROR: Could not open file > Skipping.\n");
 			continue;
@@ -1174,8 +1212,8 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		condLine = false;
 		do
 		{
-			bufferPtr = lineIter.Get();
-			lineIter.Next();
+			bufferPtr = *lineIter;
+			++lineIter;
 			if (!condLine)
 			{
 				menuFile = GetNextToken(bufferPtr, ':');
@@ -1216,30 +1254,56 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			{
 				condLine = false;
 				if (skipCond) continue;
-				evalRes = isOper = operAND = skipExpr = false;
-				do
+				
+				cndEvalStack[0] = false;
+				cndStackLevel = cndSkipLevel = 0;
+				expectANDOR = false;
+				for (; *bufferPtr; bufferPtr = delim)
 				{
-					delim = GetNextToken(bufferPtr, "\t ");
-					if (isOper)
+					delim = GetNextToken(bufferPtr, '\t');
+					if (*bufferPtr == '(')
+					{
+						expectANDOR = false;
+						if (cndSkipLevel)
+							cndSkipLevel++;
+						else
+							cndEvalStack[++cndStackLevel] = false;
+						continue;
+					}
+					if (*bufferPtr == ')')
+					{
+						expectANDOR = true;
+						if (cndSkipLevel)
+							cndSkipLevel--;
+						else if (cndStackLevel)
+						{
+							tempRes = cndEvalStack[cndStackLevel];
+							cndEvalStack[--cndStackLevel] = tempRes;
+						}
+						continue;
+					}
+					if (cndSkipLevel) continue;
+					if (expectANDOR)
 					{
 						if (*(UInt16*)bufferPtr == '&&')
-						{
-							operAND = true;
-							if (!evalRes) skipExpr = true;
-						}
+							cndSkipLevel = !cndEvalStack[cndStackLevel];
 						else if (*(UInt16*)bufferPtr == '||')
-						{
-							operAND = false;
-							if (evalRes) skipExpr = true;
-						}
-						else break;
+							cndSkipLevel = cndEvalStack[cndStackLevel];
+						else continue;
 					}
-					else if (!skipExpr)
+					else
 					{
 						if (not = *bufferPtr == '!')
 							bufferPtr++;
-						if (!StrCompare(bufferPtr, "true"))
+						cndToken = *(UInt32*)bufferPtr | 0x20202020;
+						if (cndToken == 'eurt')
 							tempRes = true;
+						else if (cndToken == 'nrad')
+							tempRes = bDarnUI;
+						else if (cndToken == '+iuv')
+							tempRes = bVUIplus;
+						else if (cndToken == 'duho')
+							tempRes = bOneHUD;
 						else if (*bufferPtr == '#')
 						{
 							StrCopy(prefabsPath + 19, bufferPtr + 1);
@@ -1247,30 +1311,21 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 						}
 						else if (*bufferPtr == '?')
 							tempRes = dataHandler->IsModLoaded(bufferPtr + 1);
-						else if (!StrCompare(bufferPtr, "darnui"))
-							tempRes = darnUI;
-						else break;
+						else tempRes = false;
 
-						if (not) tempRes = !tempRes;
-						if (operAND)
-							evalRes &= tempRes;
-						else evalRes |= tempRes;
+						cndEvalStack[cndStackLevel] = tempRes ^ not;
 					}
-					else skipExpr = false;
-
-					isOper = !isOper;
-					bufferPtr = delim;
+					expectANDOR = !expectANDOR;
 				}
-				while (*bufferPtr);
 
-				if (!evalRes)
+				if (!cndEvalStack[0])
 					PrintLog("\t\t! Conditions evaluated as FALSE > Skipping.\n");
 				else if (injectLists[menuFile][tileName].Insert(pathStr))
 					PrintLog("\t\t+ Adding to '%s' @ %s\n", menuFile + 11, tileName);
 				else PrintLog("\t\t! File already added > Skipping.\n");
 			}
 		}
-		while (!lineIter.End());
+		while (lineIter);
 	}
 	while (true);
 
@@ -1315,7 +1370,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 					*endPtr = 0;
 					if (!openTiles.Empty() && tileTypes.HasKey(bgnPtr + 1))
 					{
-						tileName = openTiles.Top().name;
+						tileName = openTiles.Top();
 						auto findTile = menuIter().Find(tileName);
 						if (findTile)
 						{
@@ -1364,7 +1419,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 							openTiles.Append(bgnPtr);
 						else
 						{
-							auto findTile = menuIter().Find(openTiles.Top().name);
+							auto findTile = menuIter().Find(openTiles.Top());
 							if ((findTile && findTile().HasKey(bgnPtr)) || StrBeginsCI(bgnPtr, "includes_"))
 							{
 								PrintLog("\t- Removing duplicate reference '%s'\n", bgnPtr);
@@ -1406,7 +1461,7 @@ __declspec(naked) void DoTileOperatorCOPY()
 		jz		copyStr
 		push	ecx
 		push	edx
-		CALL_EAX(0xEC6DA0)
+		CALL_EAX(ADDR_strcmp)
 		pop		ecx
 		test	eax, eax
 		jnz		freeStr
@@ -1974,6 +2029,27 @@ __declspec(naked) void DoTileOperatorLOG()
 		JMP_EAX(0xA09506)
 	}
 }
+__declspec(naked) void DoTileOperatorRAND()
+{
+	__asm
+	{
+		cvttss2si	edx, [ebp-0x38]
+		test	edx, edx
+		jle		done
+		push	edx
+		mov		ecx, 0x11C4180
+		CALL_EAX(ADDR_GetRandomInt)
+		movd	xmm0, eax
+		cvtdq2ps	xmm0, xmm0
+		mov		eax, [ebp-0x6C]
+		movss	[eax+8], xmm0
+		JMP_EAX(0xA09506)
+		ALIGN 16
+	done:
+		mov		dword ptr [eax+8], 0
+		JMP_EAX(0xA09506)
+	}
+}
 
 const void *kDoOperatorJumpTable[] =
 {
@@ -1983,8 +2059,11 @@ const void *kDoOperatorJumpTable[] =
 	(void*)0xA09506, (void*)0xA09506, (void*)0xA09506,
 	//	Extra operators:
 	DoTileOperatorNEG, DoTileOperatorRECIPR, DoTileOperatorLAND, DoTileOperatorLOR, DoTileOperatorSHL, DoTileOperatorSHR, DoTileOperatorBT, DoTileOperatorSQRT,
-	DoTileOperatorPOW, DoTileOperatorSIN, DoTileOperatorCOS, DoTileOperatorTAN, DoTileOperatorASIN, DoTileOperatorACOS, DoTileOperatorATAN, DoTileOperatorLOG
+	DoTileOperatorPOW, DoTileOperatorSIN, DoTileOperatorCOS, DoTileOperatorTAN, DoTileOperatorASIN, DoTileOperatorACOS, DoTileOperatorATAN, DoTileOperatorLOG,
+	DoTileOperatorRAND
 };
+
+#define NUM_OPERATORS sizeof(kDoOperatorJumpTable) / 4
 
 struct PluginInfo
 {
@@ -2019,7 +2098,7 @@ bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "UI Organizer Plugin";
-	info->version = 220;
+	info->version = 225;
 	if (nvse->isEditor)
 		return false;
 	s_log.OpenWrite(s_logPath);
@@ -2036,35 +2115,40 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 	_memcpy = memcpy;
 	_memmove = memmove;
 
-	if (GetPrivateProfileIntA("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
+	if (GetPrivateProfileInt("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
 	{
 		s_debugMode = true;
 		s_logPath = "uio_debug\\uio_debug.log";
 		PrintLog("Debug mode enabled > Log moved to %s", s_logPath);
 		s_log.Close();
-		CreateDirectoryA(s_debugPath, NULL);
+		CreateDirectory(s_debugPath, NULL);
 		s_log.OpenWrite(s_logPath);
 	}
-	PrintLog("UI Organizer v2.20\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
+	PrintLog("UI Organizer v2.25\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
 
 	SAFE_WRITE_BUF(0x70A049, "\xC7\x45\xFC\xFF\xFF\xFF\xFF\x68\x5C\xA0\x70\x00");
 	WriteRelJump(0x70A055, (UInt32)UIOLoad);
 	WriteRelCall(0xA01B87, (UInt32)ResolveXMLFileHook);
 	WriteRelCall(0xA02F44, (UInt32)GetXMLFileDataHook);
-	SafeWrite8(0xA01B7E, 1);
-	SAFE_WRITE_BUF(0xA0968C, "\x8B\x45\xD4\x8B\x48\x08\x89\x4D\xD4\x8B\x55\xD0\x81\xEA\xD0\x07\x00\x00\x83\xFA\x29\x0F\x87\x5F\xFE\xFF\xFF\x8B\x85\x20\xFF\xFF\xFF\x89\x45\x94\xFF\x24\x95");
+
+	UInt8 instrBuffer[43] =
+	{
+		0x8B, 0x45, 0xD4, 0x8B, 0x48, 0x08, 0x89, 0x4D, 0xD4, 0x8B, 0x55, 0xD0, 0x81, 0xEA, 0xD0, 0x07, 0x00, 0x00, 0x83, 0xFA,
+		NUM_OPERATORS, 0x0F, 0x83, 0x5F, 0xFE, 0xFF, 0xFF, 0x8B, 0x85, 0x20, 0xFF, 0xFF, 0xFF, 0x89, 0x45, 0x94, 0xFF, 0x24, 0x95
+	};
 	/*
 		mov		eax, [ebp-0x2C]
 		mov		ecx, [eax+8]
 		mov		[ebp-0x2C], ecx
 		mov		edx, [ebp-0x30]
 		sub		edx, 0x7D0
-		cmp		edx, 0x29
-		ja		-0x1A1 (0xA09506)
+		cmp		edx, NUM_OPERATORS
+		jnb		-0x1A1 (0xA09506)
 		mov		eax, [ebp-0xE0]		// Tile::Value*
 		mov		[ebp-0x6C], eax
-		jmp		ds:kDoOperatorJumpTable[edx*4]	// Only the first 3 bytes of the instruction; the offset is written next.
+		jmp		ds:kDoOperatorJumpTable[edx*4]
 	*/
-	SafeWrite32(0xA096B3, (UInt32)&kDoOperatorJumpTable);
+	*(UInt32*)(instrBuffer + sizeof(instrBuffer) - 4) = (UInt32)&kDoOperatorJumpTable;
+	SafeWriteBuf(0xA0968C, instrBuffer, sizeof(instrBuffer));
 	return true;
 }

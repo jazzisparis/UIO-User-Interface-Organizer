@@ -124,7 +124,7 @@ __declspec(naked) bool NiTMap::Insert(UInt32 key, Entry **outEntry)
 		xor		al, al
 		jmp		done
 	notFound:
-		CALL_EAX(0x43A010)
+		CALL_EAX(ADDR_GetAvailableLinkedNode)
 		mov		edi, eax
 		mov		dword ptr [eax+8], 0
 		mov		ecx, [ebp+8]

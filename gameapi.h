@@ -127,6 +127,7 @@ enum TileActionType
 	kAction_acos,
 	kAction_atan,
 	kAction_log,
+	kAction_rand,
 	kAction_MAX
 };
 
@@ -170,8 +171,14 @@ struct XMLtoTileData
 	TemplateData			*data;		// 00
 	ListNode<TemplateData>	list04;		// 04
 	UInt32					unk0C;		// 0C
-	UInt8					byte10;		// 10
+	bool					donotFree;	// 10
 	UInt8					pad11[3];	// 11
+
+	void Destroy()
+	{
+		ThisCall(0xA0AD40, this);
+		GameHeapFree(this);
+	}
 };
 
 struct ModInfo
