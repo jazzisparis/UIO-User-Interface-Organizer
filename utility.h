@@ -3,10 +3,8 @@
 
 #include <windows.h>
 #include <new>
-#include <utility>
 #include <cstdio>
 #include <type_traits>
-#include <initializer_list>
 #include <intrin.h>
 
 typedef unsigned char UInt8;

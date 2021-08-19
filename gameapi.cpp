@@ -195,17 +195,3 @@ __declspec(naked) TileValue* __fastcall GetTileValue(Tile *tile, UInt32 typeID)
 		retn
 	}
 }
-
-bool DataHandler::IsModLoaded(const char *modName)
-{
-	ListNode<ModInfo> *traverse = &modList.modInfoList;
-	ModInfo *modInfo;
-	do
-	{
-		modInfo = traverse->data;
-		if (modInfo && !StrCompare(modInfo->name, modName))
-			return true;
-	}
-	while (traverse = traverse->next);
-	return false;
-}
