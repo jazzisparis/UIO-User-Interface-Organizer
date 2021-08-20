@@ -1107,15 +1107,51 @@ __declspec(naked) void TileTextApplyScaleHook()
 	}
 }
 
-const MappedPair<const char*, UInt32> kMenuNameToFile[] =
+#define PATH_MessageMenu		(const char*)0x1075724
+#define PATH_InventoryMenu		(const char*)0x1073A70
+#define PATH_StatsMenu			(const char*)0x107730C
+#define PATH_HUDMainMenu		(const char*)0x107343C
+#define PATH_LoadingMenu		(const char*)0x1073F04
+#define PATH_ContainerMenu		(const char*)0x1072258
+#define PATH_DialogMenu			(const char*)0x107266C
+#define PATH_SleepWaitMenu		(const char*)0x1076468
+#define PATH_StartMenu			(const char*)0x1076D8C
+#define PATH_LockPickMenu		(const char*)0x10744A0
+#define PATH_QuantityMenu		(const char*)0x10758C4
+#define PATH_MapMenu			(const char*)0x1074DF8
+#define PATH_LevelUpMenu		(const char*)0x1073D9C
+#define PATH_RepairMenu			(const char*)0x1075D14
+#define PATH_RaceSexMenu		(const char*)0x10759BC
+#define PATH_CharGenMenu		(const char*)0x1071C5C
+#define PATH_BarterMenu			(const char*)0x10707B4
+#define PATH_HackingMenu		(const char*)0x1072990
+#define PATH_VATSMenu			(const char*)0x1077D50
+#define PATH_ComputersMenu		(const char*)0x10720E8
+#define PATH_RepairServicesMenu	(const char*)0x1075E9C
+#define PATH_TutorialMenu		(const char*)0x1077BA4
+#define PATH_SpecialBookMenu	(const char*)0x1076874
+#define PATH_ItemModMenu		(const char*)0x1073C34
+#define PATH_LoveTesterMenu		(const char*)0x10746DC
+#define PATH_CompanionWheelMenu	(const char*)0x1071DFC
+#define PATH_TraitSelectMenu	(const char*)0x1077B04
+#define PATH_RecipeMenu			(const char*)0x107054C
+#define PATH_SlotMachineMenu	(const char*)0x1076670
+#define PATH_BlackJackMenu		(const char*)0x1070C38
+#define PATH_RouletteMenu		(const char*)0x1076254
+#define PATH_CaravanMenu		(const char*)0x107170C
+#define PATH_TraitMenu			(const char*)0x1077A5C
+
+const MappedPair<const char*, const char*> kMenuNameToFile[] =
 {
-	{"BarterMenu", 0x10707B4}, {"BlackJackMenu", 0x1070C38}, {"CaravanMenu", 0x107170C}, {"CharGenMenu", 0x1071C5C}, {"CompanionWheelMenu", 0x1071DFC},
-	{"ComputersMenu", 0x10720E8}, {"ContainerMenu", 0x1072258}, {"DialogMenu", 0x107266C}, {"HackingMenu", 0x1072990}, {"LevelUpMenu", 0x1073D9C},
-	{"LoadingMenu", 0x1073F04}, {"LockPickMenu", 0x10744A0}, {"LoveTesterMenu", 0x10746DC}, {"MessageMenu", 0x1075724}, {"QuantityMenu", 0x10758C4},
-	{"RaceSexMenu", 0x10759BC}, {"RecipeMenu", 0x107054C}, {"RepairServicesMenu", 0x1075E9C}, {"RouletteMenu", 0x1076254}, {"SleepWaitMenu", 0x1076468},
-	{"SlotMachineMenu", 0x1076670}, {"SpecialBookMenu", 0x1076874}, {"StartMenu", 0x1076D8C}, {"TraitMenu", 0x1077A5C}, {"TraitSelectMenu", 0x1077B04},
-	{"TutorialMenu", 0x1077BA4}, {"VATSMenu", 0x1077D50}, {"HUDMainMenu", 0x107343C}, {"InventoryMenu", 0x1073A70}, {"ItemModMenu", 0x1073C34},
-	{"MapMenu", 0x1074DF8}, {"RepairMenu", 0x1075D14}, {"StatsMenu", 0x107730C}
+	{"BarterMenu", PATH_BarterMenu}, {"BlackJackMenu", PATH_BlackJackMenu}, {"CaravanMenu", PATH_CaravanMenu}, {"CharGenMenu", PATH_CharGenMenu},
+	{"CompanionWheelMenu", PATH_CompanionWheelMenu}, {"ComputersMenu", PATH_ComputersMenu}, {"ContainerMenu", PATH_ContainerMenu},
+	{"DialogMenu", PATH_DialogMenu}, {"HackingMenu", PATH_HackingMenu}, {"LevelUpMenu", PATH_LevelUpMenu}, {"LoadingMenu", PATH_LoadingMenu},
+	{"LockPickMenu", PATH_LockPickMenu}, {"LoveTesterMenu", PATH_LoveTesterMenu}, {"MessageMenu", PATH_MessageMenu}, {"QuantityMenu", PATH_QuantityMenu},
+	{"RaceSexMenu", PATH_RaceSexMenu}, {"RecipeMenu", PATH_RecipeMenu}, {"RepairServicesMenu", PATH_RepairServicesMenu}, {"RouletteMenu", PATH_RouletteMenu},
+	{"SleepWaitMenu", PATH_SleepWaitMenu}, {"SlotMachineMenu", PATH_SlotMachineMenu}, {"SpecialBookMenu", PATH_SpecialBookMenu}, {"StartMenu", PATH_StartMenu},
+	{"TraitMenu", PATH_TraitMenu}, {"TraitSelectMenu", PATH_TraitSelectMenu}, {"TutorialMenu", PATH_TutorialMenu}, {"VATSMenu", PATH_VATSMenu},
+	{"HUDMainMenu", PATH_HUDMainMenu}, {"InventoryMenu", PATH_InventoryMenu}, {"ItemModMenu", PATH_ItemModMenu}, {"MapMenu", PATH_MapMenu},
+	{"RepairMenu", PATH_RepairMenu}, {"StatsMenu", PATH_StatsMenu}
 };
 
 const char *kTileTypeNames[] = {"menu", "rect", "image", "text", "hotrect", "nif", "radial", "template"};
@@ -1163,12 +1199,6 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 	RegTraitID("log", kAction_log);
 	RegTraitID("rand", kAction_rand);
 
-	s_cachedBaseFiles[kTempXMLFile] = {};
-
-	for (UInt32 nameAddr : {0x107343C, 0x1073A70, 0x1073C34, 0x1074DF8, 0x1075D14, 0x107730C})
-		s_cachedParsedData[(const char*)nameAddr] = nullptr;
-	s_cachedParsedData[kTempXMLFile] = nullptr;
-
 	SAFE_WRITE_BUF(0xA03923, "\x8B\x45\x08\x3D\xB7\x0F\x00\x00\x72\x50\x3D\xF7\x0F\x00\x00\x74\x07\x3D\xBE\x0F\x00\x00\x77\x42\x8B\x45\xCC\xF6\x40\x30\x02\x75\x0B\x80\x48\x30\x02\x50\xE8\x42\x3D\x00\x00\x58\xC9\xC2\x0C\x00");
 	SafeWrite8(0xA21B83, 0xAC);
 	SafeWrite8(0xA22041, 0xAC);
@@ -1192,32 +1222,51 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 
 	PrintLog("--------------------------------\n*** Checking supported files ***\n--------------------------------\n\n");
 
-	UnorderedMap<const char*, UInt32> menuNameToFile(kMenuNameToFile, 33);
-
+	UnorderedMap<const char*, const char*> menuNameToFile(kMenuNameToFile, 33);
 	UnorderedMap<char*, IncludeRefs> injectLists;
 	char uioPath[0x50], menusPath[0x80], prefabsPath[0x80], *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
-	bool condLine, skipCond, cndEvalStack[0x10], expectANDOR, cndNeg, tempRes;
+	bool bDarnUI = false, bVUIplus = false, bOneHUD = false, condLine, skipCond, cndEvalStack[0x10], expectANDOR, cndNeg, tempRes;
 	UInt32 cndStackLevel, cndSkipLevel, cndToken;
+
+	s_cachedBaseFiles[kTempXMLFile] = {};
+	for (const char *menuPath : {PATH_HUDMainMenu, PATH_InventoryMenu, PATH_ItemModMenu, PATH_MapMenu, PATH_RepairMenu, PATH_StatsMenu})
+		s_cachedParsedData[menuPath] = nullptr;
+	s_cachedParsedData[kTempXMLFile] = nullptr;
+
+	bufferPtr = s_baseFilesCache.cache;
+	if (GetPrivateProfileString("General", "sDoNotCache", nullptr, bufferPtr, 0x4000, "Data\\uio\\settings.ini"))
+	{
+		for (; *bufferPtr; bufferPtr = delim)
+		{
+			delim = GetNextToken(bufferPtr, '\t');
+			s_cachedBaseFiles[bufferPtr] = {};
+			s_cachedParsedData[bufferPtr] = nullptr;
+		}
+	}
 
 	UnorderedSet<const char*> loadedMods(0x100);
 	memcpy(StrCopy(menusPath, (const char*)0x1202E98), "plugins.txt", 12);
 	for (LineIterator modIter(menusPath, s_baseFilesCache.cache); modIter; ++modIter)
 		loadedMods.Insert(*modIter);
 
+	if (FileExists(PATH_HUDMainMenu))
+	{
+		bOneHUD = loadedMods.HasKey("oHUD.esm");
+		if (FileExists(PATH_InventoryMenu) && FileExists(PATH_MapMenu) && FileExists(PATH_StatsMenu) && FileExists(PATH_StartMenu))
+		{
+			bDarnUI = FileExists("Data\\menus\\prefabs\\duinvsettings.xml");
+			bVUIplus = FileExists("Data\\menus\\prefabs\\VUI+\\settings.xml");
+		}
+	}
+	PrintLog("[%c] Darnified UI\n[%c] Vanilla UI Plus (VUI+)\n[%c] One HUD (oHUD)\n", bDarnUI ? 'x' : ' ', bVUIplus ? 'x' : ' ', bOneHUD ? 'x' : ' ');
+
 	memcpy(uioPath, "Data\\uio\\public\\*.txt", 22);
 	DirectoryIterator pubIter(uioPath);
 	uioPath[9] = 0;
 	memcpy(menusPath, "Data\\menus\\", 12);
+	memcpy(prefabsPath, "Data\\menus\\prefabs\\", 20);
 
-	memcpy(prefabsPath, "Data\\menus\\prefabs\\duinvsettings.xml", 37);
-	bool bDarnUI = FileExists(prefabsPath);
-	memcpy(prefabsPath + 19, "VUI+\\settings.xml", 18);
-	bool bVUIplus = FileExists(prefabsPath);
-	bool bOneHUD = loadedMods.HasKey("oHUD.esm");
-
-	PrintLog("[%c] Darnified UI\n[%c] Vanilla UI Plus (VUI+)\n[%c] One HUD (oHUD)\n", bDarnUI ? 'x' : ' ', bVUIplus ? 'x' : ' ', bOneHUD ? 'x' : ' ');
-
-	do
+	while (true)
 	{
 		if (!uioPath[9])
 			memcpy(uioPath + 9, "supported.txt", 14);
@@ -1356,7 +1405,6 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		}
 		while (lineIter);
 	}
-	while (true);
 
 	g_gameSettingsMap = (NiTMap*)(*(UInt8**)0x11C8048 + 0x10C);
 
