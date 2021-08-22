@@ -82,6 +82,7 @@ struct CacheOffset
 	CacheOffset(bool _main) : mainCache(_main), resolved(false)
 	{
 		length = s_baseFilesCache.length;
+		s_baseFilesCache.length = 0;
 		buffer = (char*)memcpy(GameHeapAlloc(length + 1), s_baseFilesCache.cache, length);
 		buffer[length] = 0;
 	}
@@ -1491,8 +1492,6 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			continue;
 		}
 
-		s_baseFilesCache.length = 0;
-
 		bufferPtr = fileData->data;
 		while ((bgnPtr = FindChr(bufferPtr, '<')) && (endPtr = FindChr(++bgnPtr, '>')))
 		{
@@ -2233,7 +2232,7 @@ bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "UI Organizer Plugin";
-	info->version = 226;
+	info->version = 230;
 	if (nvse->isEditor)
 		return false;
 	s_log.OpenWrite(s_logPath);
@@ -2259,7 +2258,7 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 		CreateDirectory(s_debugPath, NULL);
 		s_log.OpenWrite(s_logPath);
 	}
-	PrintLog("UI Organizer v2.26\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
+	PrintLog("UI Organizer v2.30\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
 
 	SAFE_WRITE_BUF(0x70A049, "\xC7\x45\xFC\xFF\xFF\xFF\xFF\x68\x5C\xA0\x70\x00");
 	WriteRelJump(0x70A055, (UInt32)UIOLoad);
