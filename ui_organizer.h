@@ -158,18 +158,30 @@ __declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const cha
 		push	dword ptr [esp+8]
 		push	offset kTempXMLFile
 		CALL_EAX(ADDR_GetXMLFileData)
-		mov		s_externFileData, eax
 		test	eax, eax
 		jz		done
 		cmp		dword ptr [eax], 0
-		jz		done
+		jz		isEmpty
 		push	eax
 		CALL_EAX(ADDR_ResolveXMLIncludes)
-		pop		ecx
+		pop		eax
+		cmp		dword ptr [eax], 0
+		jz		isEmpty
+		mov		s_externFileData, eax
 		mov		ecx, [esp+0xC]
 		CALL_EAX(ADDR_CreateTileFromXML)
 		pop		ecx
 		retn	8
+		ALIGN 16
+	isEmpty:
+		add		esp, 8
+		push	eax
+		push	dword ptr [eax+4]
+		GAME_HEAP_FREE
+		GAME_HEAP_FREE
+		xor		eax, eax
+		retn	8
+		ALIGN 16
 	done:
 		add		esp, 8
 		retn	8
@@ -777,13 +789,14 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		pop		ecx
 	hasData:
 		mov		[ebp-4], eax
-		cmp		dword ptr [eax+4], 0
+		mov		ebx, [eax+4]
+		test	ebx, ebx
+		cmovz	esi, edi
 		jz		skipClose
-		mov		ebx, eax
 		cmp		[esi+5], 0
 		jz		notDebug
 		mov		[esi+5], 0
-		push	ebx
+		push	eax
 		push	dword ptr [ebp+8]
 		call	InitDebugLog
 		mov		edi, eax
@@ -797,12 +810,10 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		mov		[esi], eax
 		mov		ecx, [ebp]
 		mov		[ecx-0x11], 1
-		ALIGN 16
 	skipCache:
 		mov		esi, eax
 		pxor	xmm0, xmm0
 		movups	[ebp-0x14], xmm0
-		mov		ebx, [ebx+4]
 		dec		ebx
 		ALIGN 16
 	mainIter:
