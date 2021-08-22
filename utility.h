@@ -102,10 +102,6 @@ UInt32 __fastcall StrLen(const char *str);
 
 char* __fastcall StrCopy(char *dest, const char *src);
 
-char* __fastcall StrNCopy(char *dest, const char *src, UInt32 length);
-
-char* __fastcall StrLenCopy(char *dest, const char *src, UInt32 length);
-
 UInt32 __fastcall StrHash(const char *inKey);
 
 char __fastcall StrCompare(const char *lstr, const char *rstr);
@@ -215,7 +211,10 @@ class LineIterator
 	char	*dataPtr;
 
 public:
-	LineIterator(const char *filePath, char *buffer);
+	LineIterator(char *buffer) : dataPtr(buffer) {*dataPtr = 3;}
+	LineIterator(const char *filePath, char *buffer) : dataPtr(buffer) {Init(filePath);}
+
+	void Init(const char *filePath);
 
 	explicit operator bool() const {return *dataPtr != 3;}
 	char* operator*() {return dataPtr;}
@@ -231,7 +230,7 @@ public:
 void __stdcall SafeWrite8(UInt32 addr, UInt32 data);
 void __stdcall SafeWrite16(UInt32 addr, UInt32 data);
 void __stdcall SafeWrite32(UInt32 addr, UInt32 data);
-void __stdcall SafeWriteBuf(UInt32 addr, void * data, UInt32 len);
+void __stdcall SafeWriteBuf(UInt32 addr, void *data, UInt32 len);
 #define SAFE_WRITE_BUF(addr, data) SafeWriteBuf(addr, data, sizeof(data) - 1)
 
 void __stdcall WriteRelJump(UInt32 jumpSrc, UInt32 jumpTgt);
@@ -258,3 +257,5 @@ double __vectorcall dASin(double value);
 double __vectorcall dACos(double value);
 double __vectorcall dATan(double value);
 double __vectorcall dLog(double value);
+
+void __fastcall FixSpaces(char *line, char EDX = 0);

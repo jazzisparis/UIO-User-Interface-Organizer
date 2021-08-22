@@ -30,7 +30,19 @@ struct XMLCache
 	UInt32		allocated;
 	UInt32		length;
 
-	XMLCache() : allocated(XML_CACHE_BASE), length(0) {cache = (char*)malloc(allocated);}
+	XMLCache(UInt32 _alloc = XML_CACHE_BASE) : allocated(_alloc), length(0) {cache = (char*)malloc(allocated);}
+
+	void WriteInclude(const char *filePath)
+	{
+		if ((allocated - length) < 0x80)
+		{
+			allocated += XML_CACHE_GROW;
+			cache = (char*)realloc(cache, allocated);
+		}
+		char *endPtr = StrCopy((char*)memcpy(cache + length, "<include src=\"", 14) + 14, filePath);
+		*(UInt32*)endPtr = '>/\"';
+		length = endPtr - cache + 3;
+	}
 
 	void __fastcall Write(void *dataPtr, UInt32 size)
 	{
@@ -57,26 +69,40 @@ s_baseFilesCache;
 
 struct CacheOffset
 {
+	UInt32		length;
 	union
 	{
 		char	*buffer;
 		UInt32	begin;
 	};
-	UInt32		length;
 	bool		mainCache;
+	bool		resolved;
 
-	CacheOffset() : begin(0), length(0), mainCache(true) {}
-	CacheOffset(XMLCache *xmlCache) : length(xmlCache->length), mainCache(false)
+	CacheOffset() : length(0), begin(0), mainCache(true), resolved(true) {}
+	CacheOffset(bool _main) : mainCache(_main), resolved(false)
 	{
-		buffer = (char*)memcpy(GameHeapAlloc(length + 1), xmlCache->cache, length);
+		length = s_baseFilesCache.length;
+		buffer = (char*)memcpy(GameHeapAlloc(length + 1), s_baseFilesCache.cache, length);
 		buffer[length] = 0;
 	}
 };
 
+bool s_debugMode = false;
+
+struct ParsedData
+{
+	XMLtoTileData	*data;
+	bool			cached;
+	bool			debugLog;
+
+	ParsedData() : data(nullptr), cached(true), debugLog(s_debugMode) {}
+	ParsedData(bool _cached) : data(nullptr), cached(_cached), debugLog(s_debugMode) {}
+	ParsedData(bool _cached, bool _debug) : data(nullptr), cached(_cached), debugLog(_debug) {}
+};
+
 FileStream s_log, s_debugLog;
 UnorderedMap<const char*, CacheOffset> s_cachedBaseFiles(0x80);
-UnorderedMap<const char*, XMLtoTileData*> s_cachedParsedData(0x20);
-bool s_debugMode = false;
+UnorderedMap<const char*, ParsedData> s_cachedParsedData(0x20);
 char s_debugPath[0x80] = "uio_debug\\";
 const char *s_logPath = "ui_organizer.log",
 kTempXMLFile[] = "jip_temp.xml",
@@ -134,6 +160,11 @@ __declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const cha
 		mov		s_externFileData, eax
 		test	eax, eax
 		jz		done
+		cmp		dword ptr [eax], 0
+		jz		done
+		push	eax
+		CALL_EAX(ADDR_ResolveXMLIncludes)
+		pop		ecx
 		mov		ecx, [esp+0xC]
 		CALL_EAX(ADDR_CreateTileFromXML)
 		pop		ecx
@@ -161,15 +192,34 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		pop		ebx
 		test	al, al
 		jnz		notCached
-		mov		esi, [ebx+4]
+		mov		esi, [ebx]
 		test	esi, esi
 		cmovz	ebx, esi
 		jz		notCached
+		cmp		[ebx+9], 0
+		jnz		resolved
+		mov		[ebx+9], 1
+		push	ebx
+		CALL_EAX(ADDR_ResolveXMLIncludes)
+		pop		ecx
+		mov		esi, [ebx]
+		cmp		[ebx+8], 0
+		jz		notMain
+		mov		edi, [ebx+4]
+		mov		ecx, offset s_baseFilesCache
+		mov		eax, [ecx+8]
+		mov		[ebx+4], eax
+		push	esi
+		mov		edx, edi
+		call	XMLCache::Write
+		jmp		createData
+		ALIGN 16
+	resolved:
 		cmp		[ebx+8], 0
 		jz		notMain
 		push	esi
 		mov		edx, s_baseFilesCache.cache
-		add		edx, [ebx]
+		add		edx, [ebx+4]
 		push	edx
 		lea		edx, [esi+1]
 		push	edx
@@ -182,8 +232,8 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		jmp		createData
 		ALIGN 16
 	notMain:
-		mov		edi, [ebx]
-		mov		dword ptr [ebx+4], 0
+		mov		edi, [ebx+4]
+		mov		dword ptr [ebx], 0
 		ALIGN 16
 	createData:
 		push	8
@@ -202,6 +252,9 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		add		esp, 8
 		test	eax, eax
 		jz		createData
+		push	eax
+		CALL_EAX(ADDR_ResolveXMLIncludes)
+		pop		eax
 		test	ebx, ebx
 		jz		done
 		mov		edi, [eax]
@@ -211,10 +264,10 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		cmp		dword ptr [edx], 'nem<'
 		jz		done
 		mov		esi, eax
+		mov		[ebx], edi
 		mov		ecx, offset s_baseFilesCache
 		mov		eax, [ecx+8]
-		mov		[ebx], eax
-		mov		[ebx+4], edi
+		mov		[ebx+4], eax
 		push	edi
 		call	XMLCache::Write
 		mov		eax, esi
@@ -691,17 +744,16 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 {
 	__asm
 	{
-		push	0
+		push	edx
 		push	esp
 		push	dword ptr [esp+0xC]
 		mov		ecx, offset s_cachedParsedData
-		call	UnorderedMap<const char*, XMLtoTileData*>::Insert
+		call	UnorderedMap<const char*, ParsedData>::Insert
 		pop		edx
 		test	al, al
 		jnz		notCached
 		mov		eax, [edx]
 		test	eax, eax
-		cmovz	edx, eax
 		jz		notCached
 		mov		[ebp-0x11], 1
 		retn
@@ -726,13 +778,10 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		mov		[ebp-4], eax
 		cmp		dword ptr [eax+4], 0
 		jz		skipClose
-		push	eax
-		CALL_EAX(ADDR_ResolveXMLIncludes)
-		pop		ebx
-		cmp		s_debugMode, 0
+		mov		ebx, eax
+		cmp		[esi+5], 0
 		jz		notDebug
-		test	esi, esi
-		jz		notDebug
+		mov		[esi+5], 0
 		push	ebx
 		push	dword ptr [ebp+8]
 		call	InitDebugLog
@@ -742,11 +791,12 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		GAME_HEAP_ALLOC
 		mov		ecx, eax
 		CALL_EAX(ADDR_InitXMLtoTileData)
-		test	esi, esi
+		cmp		[esi+4], 0
 		jz		skipCache
 		mov		[esi], eax
 		mov		ecx, [ebp]
 		mov		[ecx-0x11], 1
+		ALIGN 16
 	skipCache:
 		mov		esi, eax
 		pxor	xmm0, xmm0
@@ -927,8 +977,8 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		jmp		verifyEQ
 	needTrait:
 		mov		ecx, [ebx+2]
-		or		ecx, 0x20202020
-		cmp		ecx, 'iart'
+		and		ecx, 'IART'
+		cmp		ecx, 'IART'
 		jnz		onError1
 		mov		ecx, 0xBBC
 		add		ebx, 7
@@ -1107,6 +1157,7 @@ __declspec(naked) void TileTextApplyScaleHook()
 	}
 }
 
+#define PATH_Globals			(const char*)0x106EFF8
 #define PATH_MessageMenu		(const char*)0x1075724
 #define PATH_InventoryMenu		(const char*)0x1073A70
 #define PATH_StatsMenu			(const char*)0x107730C
@@ -1220,18 +1271,20 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 
 	CdeclCall(0x476C00);
 
+	g_gameSettingsMap = (NiTMap*)(*(UInt8**)0x11C8048 + 0x10C);
+
 	PrintLog("--------------------------------\n*** Checking supported files ***\n--------------------------------\n\n");
 
 	UnorderedMap<const char*, const char*> menuNameToFile(kMenuNameToFile, 33);
 	UnorderedMap<char*, IncludeRefs> injectLists;
-	char uioPath[0x50], menusPath[0x80], prefabsPath[0x80], *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
-	bool bDarnUI = false, bVUIplus = false, bOneHUD = false, condLine, skipCond, cndEvalStack[0x10], expectANDOR, cndNeg, tempRes;
+	char menusPath[0x80], prefabsPath[0x80], publicPath[0x50], *bufferPtr, *menuFile, *tileName, *pathStr, *delim;
+	bool bDarnUI = false, bVUIplus = false, bOneHUD = false, doSupported = true, fixSpaces = false, condLine, skipCond, cndEvalStack[0x10], expectANDOR, cndNeg, tempRes;
 	UInt32 cndStackLevel, cndSkipLevel, cndToken;
 
 	s_cachedBaseFiles[kTempXMLFile] = {};
-	for (const char *menuPath : {PATH_HUDMainMenu, PATH_InventoryMenu, PATH_ItemModMenu, PATH_MapMenu, PATH_RepairMenu, PATH_StatsMenu})
-		s_cachedParsedData[menuPath] = nullptr;
-	s_cachedParsedData[kTempXMLFile] = nullptr;
+	for (auto menuPath : {PATH_Globals, PATH_HUDMainMenu, PATH_InventoryMenu, PATH_ItemModMenu, PATH_MapMenu, PATH_RepairMenu, PATH_StatsMenu})
+		s_cachedParsedData.Emplace(menuPath, false);
+	s_cachedParsedData.Emplace(kTempXMLFile, false, false);
 
 	bufferPtr = s_baseFilesCache.cache;
 	if (GetPrivateProfileString("General", "sDoNotCache", nullptr, bufferPtr, 0x4000, "Data\\uio\\settings.ini"))
@@ -1240,7 +1293,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		{
 			delim = GetNextToken(bufferPtr, '\t');
 			s_cachedBaseFiles[bufferPtr] = {};
-			s_cachedParsedData[bufferPtr] = nullptr;
+			s_cachedParsedData.Emplace(bufferPtr, false);
 		}
 	}
 
@@ -1258,27 +1311,30 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			bVUIplus = FileExists("Data\\menus\\prefabs\\VUI+\\settings.xml");
 		}
 	}
-	PrintLog("[%c] Darnified UI\n[%c] Vanilla UI Plus (VUI+)\n[%c] One HUD (oHUD)\n", bDarnUI ? 'x' : ' ', bVUIplus ? 'x' : ' ', bOneHUD ? 'x' : ' ');
+	PrintLog("[%c] DarNified UI\n[%c] Vanilla UI Plus (VUI+)\n[%c] One HUD (oHUD)\n", bDarnUI ? 'x' : ' ', bVUIplus ? 'x' : ' ', bOneHUD ? 'x' : ' ');
 
-	memcpy(uioPath, "Data\\uio\\public\\*.txt", 22);
-	DirectoryIterator pubIter(uioPath);
-	uioPath[9] = 0;
 	memcpy(menusPath, "Data\\menus\\", 12);
 	memcpy(prefabsPath, "Data\\menus\\prefabs\\", 20);
+	LineIterator lineIter("Data\\uio\\supported.txt", s_baseFilesCache.cache);
+	memcpy(publicPath, "Data\\uio\\public\\*.txt", 22);
+	DirectoryIterator pubIter(publicPath);
 
 	while (true)
 	{
-		if (!uioPath[9])
-			memcpy(uioPath + 9, "supported.txt", 14);
-		else
+		if (!doSupported)
 		{
 			if (!pubIter) break;
-			StrCopy(StrLenCopy(uioPath + 9, "public\\", 7), *pubIter);
+			StrCopy(publicPath + 16, *pubIter);
 			++pubIter;
+			lineIter.Init(publicPath);
+			fixSpaces = true;
+			PrintLog("\n>>>>> Processing file '%s'\n", publicPath + 9);
 		}
-
-		PrintLog("\n>>>>> Processing file '%s'\n", uioPath + 9);
-		LineIterator lineIter(uioPath, s_baseFilesCache.cache);
+		else
+		{
+			doSupported = false;
+			PrintLog("\n>>>>> Processing file 'supported.txt'\n");
+		}
 
 		if (!lineIter)
 		{
@@ -1291,6 +1347,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		{
 			bufferPtr = *lineIter;
 			++lineIter;
+			if (*bufferPtr == ';') continue;
 			if (!condLine)
 			{
 				menuFile = GetNextToken(bufferPtr, ':');
@@ -1306,9 +1363,9 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 				tileName = GetNextToken(menuFile, ':');
 				if (*menuFile == '@')
 				{
-					if (!*tileName)
+					if (!*tileName && !StrBeginsCI(menuFile + 1, "prefabs\\"))
 					{
-						PrintLog("\t\t! Missing target element > Skipping.\n");
+						PrintLog("\t\t! Injecting @ EoF is only allowed with prefab files > Skipping.\n");
 						continue;
 					}
 					StrCopy(menusPath + 11, menuFile + 1);
@@ -1331,6 +1388,9 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			{
 				condLine = false;
 				if (skipCond) continue;
+
+				if (fixSpaces)
+					FixSpaces(bufferPtr);
 				
 				cndEvalStack[0] = false;
 				cndStackLevel = 0;
@@ -1399,14 +1459,12 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 				if (!cndEvalStack[0])
 					PrintLog("\t\t! Conditions evaluated as FALSE > Skipping.\n");
 				else if (injectLists[menuFile][tileName].Insert(pathStr))
-					PrintLog("\t\t+ Adding to '%s' @ %s\n", menuFile + 11, tileName);
+					PrintLog("\t\t+ Adding to '%s' @ %s\n", menuFile + 11, *tileName ? tileName : "EoF");
 				else PrintLog("\t\t! File already added > Skipping.\n");
 			}
 		}
 		while (lineIter);
 	}
-
-	g_gameSettingsMap = (NiTMap*)(*(UInt8**)0x11C8048 + 0x10C);
 
 	PrintLog("\n---------------------------\n*** Patching menu files ***\n---------------------------\n");
 
@@ -1417,9 +1475,8 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 	}
 
 	UnorderedSet<const char*> tileTypes(kTileTypeNames, 8);
-
 	UInt32 length;
-	XMLFileData *fileData, *inclData;
+	XMLFileData *fileData;
 	char *bgnPtr, *endPtr, srchType;
 	Vector<TileName> openTiles(0x10);
 
@@ -1453,16 +1510,8 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 						{
 							for (auto inclIter = findTile().Begin(); inclIter; ++inclIter)
 							{
-								StrCopy(prefabsPath + 19, *inclIter);
-								inclData = XMLFileData::Get(prefabsPath);
-								if (!inclData)
-								{
-									PrintLog("\t! ERROR: Could not open '%s' > Skipping.\n", *inclIter);
-									continue;
-								}
+								s_baseFilesCache.WriteInclude(*inclIter);
 								PrintLog("\t+ Injecting '%s' @ %s\n", *inclIter, tileName);
-								s_baseFilesCache.Write(inclData->data, inclData->length);
-								inclData->Destroy();
 							}
 							findTile.Remove();
 						}
@@ -1517,10 +1566,21 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		fileData->Destroy();
 		openTiles.Clear();
 
-		s_cachedBaseFiles.Emplace(menuIter.Key(), &s_baseFilesCache);
-
 		for (auto notFound = menuIter().Begin(); notFound; ++notFound)
-			PrintLog("\t! Menu element '%s' not found > Skipping.\n", notFound.Key());
+		{
+			if (*notFound.Key())
+				PrintLog("\t! Menu element '%s' not found > Skipping.\n", notFound.Key());
+			else
+			{
+				for (auto inclIter = notFound().Begin(); inclIter; ++inclIter)
+				{
+					s_baseFilesCache.WriteInclude(*inclIter);
+					PrintLog("\t+ Injecting '%s' @ EoF\n", *inclIter);
+				}
+			}
+		}
+
+		s_cachedBaseFiles.Emplace(menuIter.Key(), StrBeginsCI(menuIter.Key() + 11, "prefabs\\"));
 	}
 }
 
@@ -2173,7 +2233,7 @@ bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "UI Organizer Plugin";
-	info->version = 225;
+	info->version = 226;
 	if (nvse->isEditor)
 		return false;
 	s_log.OpenWrite(s_logPath);
@@ -2199,7 +2259,7 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 		CreateDirectory(s_debugPath, NULL);
 		s_log.OpenWrite(s_logPath);
 	}
-	PrintLog("UI Organizer v2.25\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
+	PrintLog("UI Organizer v2.26\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
 
 	SAFE_WRITE_BUF(0x70A049, "\xC7\x45\xFC\xFF\xFF\xFF\xFF\x68\x5C\xA0\x70\x00");
 	WriteRelJump(0x70A055, (UInt32)UIOLoad);

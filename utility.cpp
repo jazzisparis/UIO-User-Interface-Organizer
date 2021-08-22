@@ -145,7 +145,7 @@ __declspec(naked) char* __fastcall StrCopy(char *dest, const char *src)
 		push	eax
 		push	ecx
 		push	edx
-		call	_memmove
+		call	_memcpy
 		add		esp, 0xC
 		pop		ecx
 		add		eax, ecx
@@ -154,64 +154,6 @@ __declspec(naked) char* __fastcall StrCopy(char *dest, const char *src)
 		mov		[eax], 0
 	done:
 		retn
-	}
-}
-
-__declspec(naked) char* __fastcall StrNCopy(char *dest, const char *src, UInt32 length)
-{
-	__asm
-	{
-		mov		eax, ecx
-		test	ecx, ecx
-		jz		done
-		test	edx, edx
-		jz		nullTerm
-		cmp		dword ptr [esp+4], 0
-		jz		nullTerm
-		push	esi
-		mov		esi, ecx
-		mov		ecx, edx
-		call	StrLen
-		mov		edx, [esp+8]
-		cmp		edx, eax
-		cmova	edx, eax
-		push	edx
-		push	ecx
-		push	esi
-		add		esi, edx
-		call	_memmove
-		add		esp, 0xC
-		mov		eax, esi
-		pop		esi
-	nullTerm:
-		mov		[eax], 0
-	done:
-		retn	4
-	}
-}
-
-__declspec(naked) char* __fastcall StrLenCopy(char *dest, const char *src, UInt32 length)
-{
-	__asm
-	{
-		mov		eax, ecx
-		test	ecx, ecx
-		jz		done
-		test	edx, edx
-		jz		nullTerm
-		mov		ecx, [esp+4]
-		test	ecx, ecx
-		jz		nullTerm
-		push	ecx
-		push	edx
-		push	eax
-		call	_memmove
-		add		esp, 0xC
-		add		eax, [esp+4]
-	nullTerm:
-		mov		[eax], 0
-	done:
-		retn	4
 	}
 }
 
@@ -549,14 +491,12 @@ void PrintLog(const char *fmt, ...)
 	fflush(s_log);
 }
 
-__declspec(naked) LineIterator::LineIterator(const char *filePath, char *buffer)
+__declspec(naked) void LineIterator::Init(const char *filePath)
 {
 	__asm
 	{
 		push	ebx
 		mov		ebx, ecx
-		mov		edx, [esp+0xC]
-		mov		[ebx], edx
 		push	'br'
 		push	esp
 		push	dword ptr [esp+0x10]
@@ -611,13 +551,13 @@ __declspec(naked) LineIterator::LineIterator(const char *filePath, char *buffer)
 		pop		edi
 		pop		esi
 		pop		ebx
-		retn	8
+		retn	4
 		ALIGN 16
 	openFail:
 		mov		edx, [ebx]
 		mov		[edx], 3
 		pop		ebx
-		retn	8
+		retn	4
 	}
 }
 
@@ -811,4 +751,54 @@ double __vectorcall dATan(double value)
 double __vectorcall dLog(double value)
 {
 	return log(value);
+}
+
+__declspec(naked) void __fastcall FixSpaces(char *line, char EDX)
+{
+	__asm
+	{
+	iterHead:
+		mov		al, [ecx]
+		test	al, al
+		jz		done
+		inc		ecx
+		test	dl, dl
+		jnz		fileName
+		test	al, ' '
+		jz		iterHead
+		cmp		al, ' '
+		jz		isSpace
+		cmp		al, '?'
+		ja		iterHead
+		setz	dl
+		jz		iterHead
+		cmp		al, '#'
+		setz	dl
+		jmp		iterHead
+		ALIGN 16
+	isSpace:
+		mov		[ecx-1], '\t'
+		jmp		iterHead
+		ALIGN 16
+	fileName:
+		cmp		al, '.'
+		jnz		iterHead
+		mov		eax, [ecx-1]
+		and		eax, 0x5D5F5D2E
+		cmp		eax, 'LMX.'
+		jl		iterHead
+		jz		fileExt
+		cmp		eax, 'PSE.'
+		ja		iterHead
+		jz		fileExt
+		cmp		eax, 'MSE.'
+		jnz		iterHead
+	fileExt:
+		xor		dl, dl
+		add		ecx, 3
+		jmp		iterHead
+		ALIGN 16
+	done:
+		retn
+	}
 }
