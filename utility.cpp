@@ -1,6 +1,6 @@
 #include "utility.h"
 
-memcpy_t _memcpy = memcpy, _memmove = memmove;
+memcpy_t _memcpy = nullptr;
 
 #define FAST_SLEEP_COUNT 10000UL
 
