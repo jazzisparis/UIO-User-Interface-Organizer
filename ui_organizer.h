@@ -21,7 +21,6 @@ struct XMLFileData
 	}
 };
 
-#define XML_CACHE_BASE 0x80000UL
 #define XML_CACHE_GROW 0x40000UL
 
 struct XMLCache
@@ -30,42 +29,75 @@ struct XMLCache
 	UInt32		allocated;
 	UInt32		length;
 
-	XMLCache(UInt32 _alloc = XML_CACHE_BASE) : allocated(_alloc), length(0) {cache = (char*)malloc(allocated);}
+	XMLCache() : cache(nullptr), allocated(0), length(0) {}
 
-	void WriteInclude(const char *filePath)
+	void Init(UInt32 _alloc)
 	{
-		if ((allocated - length) < 0x80)
-		{
-			allocated += XML_CACHE_GROW;
-			cache = (char*)realloc(cache, allocated);
-		}
+		allocated = _alloc;
+		cache = (char*)malloc(_alloc);
+	}
+
+	void __fastcall WriteInclude(const char *filePath)
+	{
 		char *endPtr = StrCopy((char*)memcpy(cache + length, "<include src=\"", 14) + 14, filePath);
 		*(UInt32*)endPtr = '>/\"';
 		length = endPtr - cache + 3;
 	}
 
-	void __fastcall Write(void *dataPtr, UInt32 size)
-	{
-		UInt32 end = length;
-		length += size;
-		if (length > allocated)
-		{
-			do
-			{
-				allocated += XML_CACHE_GROW;
-			}
-			while (length > allocated);
-			cache = (char*)realloc(cache, allocated);
-		}
-		memcpy(cache + end, dataPtr, size);
-	}
+	void __fastcall Write(void *dataPtr, UInt32 size);
 
 	void Read(void *dataPtr, UInt32 begin, UInt32 size)
 	{
 		memcpy(dataPtr, cache + begin, size);
 	}
+
+	void Erase(UInt32 begin, UInt32 size)
+	{
+		length -= size;
+		memmove(cache + begin, cache + begin + size, length - begin);
+	}
 }
-s_baseFilesCache;
+s_baseFilesCache, s_inclTempBuffer;
+
+__declspec(naked) void __fastcall XMLCache::Write(void *dataPtr, UInt32 size)
+{
+	__asm
+	{
+		mov		eax, [esp+4]
+		test	eax, eax
+		jz		done
+		push	eax
+		push	edx
+		mov		edx, [ecx+8]
+		push	edx
+		add		eax, edx
+		mov		[ecx+8], eax
+		mov		edx, [ecx+4]
+		cmp		eax, edx
+		jbe		doCopy
+		ALIGN 16
+	growIter:
+		add		edx, XML_CACHE_GROW
+		cmp		eax, edx
+		ja		growIter
+		mov		[ecx+4], edx
+		push	ecx
+		push	edx
+		push	dword ptr [ecx]
+		call	realloc
+		add		esp, 8
+		pop		ecx
+		mov		[ecx], eax
+		ALIGN 16
+	doCopy:
+		mov		edx, [ecx]
+		add		[esp], edx
+		call	_memcpy
+		add		esp, 0xC
+	done:
+		retn	4
+	}
+}
 
 struct CacheOffset
 {
@@ -81,9 +113,9 @@ struct CacheOffset
 	CacheOffset() : length(0), begin(0), mainCache(true), resolved(true) {}
 	CacheOffset(bool _main) : mainCache(_main), resolved(false)
 	{
-		length = s_baseFilesCache.length;
-		s_baseFilesCache.length = 0;
-		buffer = (char*)memcpy(GameHeapAlloc(length + 1), s_baseFilesCache.cache, length);
+		length = s_inclTempBuffer.length;
+		s_inclTempBuffer.length = 0;
+		buffer = (char*)memcpy(GameHeapAlloc(length + 1), s_inclTempBuffer.cache, length);
 		buffer[length] = 0;
 	}
 };
@@ -149,6 +181,136 @@ void __fastcall PrintTraitEntry(UInt32 *args)
 	}
 }
 
+typedef const char* (__cdecl *strstr_t)(const char *str1, const char *str2);
+strstr_t _strstr;
+
+XMLFileData* __stdcall GetXMLFileData(const char *filePath);
+
+__declspec(naked) void __cdecl ResolveXMLIncludes(XMLFileData *fileData)
+{
+	static const char kIncludeTag[] = "<include";
+	static char kPrefabsPath[0x80] = "data\\menus\\prefabs\\";
+	__asm
+	{
+		push	ebp
+		mov		ebp, esp
+		mov		ecx, offset s_inclTempBuffer
+		push	ecx
+		push	dword ptr [ecx+8]
+		push	0
+		push	ebx
+		push	esi
+		push	edi
+		mov		eax, [ebp+8]
+		mov		ebx, [eax+4]
+		ALIGN 16
+	iterHead:
+		push	offset kIncludeTag
+		push	ebx
+		call	_strstr
+		add		esp, 8
+		test	eax, eax
+		jz		iterEnd
+		mov		esi, eax
+		mov		dl, '>'
+		lea		ecx, [eax+0x14]
+		call	FindChr
+		test	eax, eax
+		jz		iterEnd
+		mov		edi, eax
+		mov		[ebp-0xC], 1
+		mov		edx, esi
+		sub		edx, ebx
+		push	edx
+		mov		edx, ebx
+		mov		ecx, [ebp-4]
+		call	XMLCache::Write
+		lea		ebx, [edi+1]
+		mov		[edi], 0
+		mov		dl, '\"'
+		lea		ecx, [esi+0xD]
+		call	FindChr
+		test	eax, eax
+		jz		iterHead
+		lea		esi, [eax+1]
+		mov		dl, '\"'
+		mov		ecx, esi
+		call	FindChr
+		test	eax, eax
+		jz		iterHead
+		mov		ecx, eax
+		sub		ecx, esi
+		cmp		ecx, 5
+		jl		iterHead
+		mov		[eax], 0
+		inc		ecx
+		push	ecx
+		push	esi
+		push	offset kPrefabsPath+0x13
+		call	_memcpy
+		add		esp, 0xC
+		push	offset kPrefabsPath
+		call	GetXMLFileData
+		mov		edx, [eax+4]
+		push	edx
+		push	eax
+		push	dword ptr [eax]
+		mov		ecx, [ebp-4]
+		call	XMLCache::Write
+		GAME_HEAP_FREE
+		GAME_HEAP_FREE
+		jmp		iterHead
+		ALIGN 16
+	iterEnd:
+		cmp		[ebp-0xC], 0
+		jz		done
+		mov		ecx, ebx
+		call	StrLen
+		mov		edi, eax
+		mov		eax, [ebp-8]
+		mov		[ebp-8], ebx
+		mov		ecx, [ebp-4]
+		mov		edx, [ecx]
+		lea		ebx, [eax+edx]
+		mov		esi, [ecx+8]
+		sub		esi, eax
+		mov		[ecx+8], eax
+		lea		edx, [esi+edi+1]
+		push	edx
+		GAME_HEAP_ALLOC
+		lea		edx, [esi+edi]
+		mov		[eax+edx], 0
+		mov		ecx, [ebp+8]
+		mov		[ecx], edx
+		push	dword ptr [ecx+4]
+		mov		[ecx+4], eax
+		test	esi, esi
+		jz		doneCpyDn
+		push	esi
+		push	ebx
+		push	eax
+		call	_memcpy
+		add		esp, 0xC
+	doneCpyDn:
+		test	edi, edi
+		jz		doneCpyUp
+		push	edi
+		push	dword ptr [ebp-8]
+		add		eax, esi
+		push	eax
+		call	_memcpy
+		add		esp, 0xC
+	doneCpyUp:
+		GAME_HEAP_FREE
+	done:
+		pop		edi
+		pop		esi
+		pop		ebx
+		leave
+		retn
+	}
+}
+
 XMLFileData *s_externFileData = nullptr;
 
 __declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const char *dataStr)
@@ -163,7 +325,7 @@ __declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const cha
 		cmp		dword ptr [eax], 0
 		jz		isEmpty
 		push	eax
-		CALL_EAX(ADDR_ResolveXMLIncludes)
+		call	ResolveXMLIncludes
 		pop		eax
 		cmp		dword ptr [eax], 0
 		jz		isEmpty
@@ -188,7 +350,7 @@ __declspec(naked) Tile* __stdcall UIOInjectComponent(Tile *parentTile, const cha
 	}
 }
 
-__declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, UInt32 arg2)
+__declspec(naked) XMLFileData* __stdcall GetXMLFileData(const char *filePath)
 {
 	__asm
 	{
@@ -213,7 +375,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		jnz		resolved
 		mov		[ebx+9], 1
 		push	ebx
-		CALL_EAX(ADDR_ResolveXMLIncludes)
+		call	ResolveXMLIncludes
 		pop		ecx
 		mov		esi, [ebx]
 		cmp		[ebx+8], 0
@@ -256,7 +418,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		pop		edi
 		pop		esi
 		pop		ebx
-		retn
+		retn	4
 		ALIGN 16
 	notCached:
 		push	0
@@ -266,13 +428,15 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		test	eax, eax
 		jz		createData
 		push	eax
-		CALL_EAX(ADDR_ResolveXMLIncludes)
+		call	ResolveXMLIncludes
 		pop		eax
 		test	ebx, ebx
 		jz		done
 		mov		edi, [eax]
 		test	edi, edi
 		jz		done
+		cmp		edi, 0x10000
+		ja		done
 		mov		edx, [eax+4]
 		cmp		dword ptr [edx], 'nem<'
 		jz		done
@@ -289,7 +453,7 @@ __declspec(naked) XMLFileData* __cdecl GetXMLFileDataHook(const char *filePath, 
 		pop		edi
 		pop		esi
 		pop		ebx
-		retn
+		retn	4
 	}
 }
 
@@ -785,8 +949,7 @@ __declspec(naked) XMLtoTileData* __cdecl ResolveXMLFileHook(const char *filePath
 		test	eax, eax
 		jnz		hasData
 		push	dword ptr [ebp+8]
-		call	GetXMLFileDataHook
-		pop		ecx
+		call	GetXMLFileData
 	hasData:
 		mov		[ebp-4], eax
 		mov		ebx, [eax+4]
@@ -1298,7 +1461,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 		s_cachedParsedData.Emplace(menuPath, false);
 	s_cachedParsedData.Emplace(kTempXMLFile, false, false);
 
-	bufferPtr = s_baseFilesCache.cache;
+	bufferPtr = s_inclTempBuffer.cache;
 	if (GetPrivateProfileString("General", "sDoNotCache", nullptr, bufferPtr, 0x4000, "Data\\uio\\settings.ini"))
 	{
 		for (; *bufferPtr; bufferPtr = delim)
@@ -1311,7 +1474,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 
 	UnorderedSet<const char*> loadedMods(0x100);
 	memcpy(StrCopy(menusPath, (const char*)0x1202E98), "plugins.txt", 12);
-	for (LineIterator modIter(menusPath, s_baseFilesCache.cache); modIter; ++modIter)
+	for (LineIterator modIter(menusPath, s_inclTempBuffer.cache); modIter; ++modIter)
 		loadedMods.Insert(*modIter);
 
 	if (FileExists(PATH_HUDMainMenu))
@@ -1327,7 +1490,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 
 	memcpy(menusPath, "Data\\menus\\", 12);
 	memcpy(prefabsPath, "Data\\menus\\prefabs\\", 20);
-	LineIterator lineIter("Data\\uio\\supported.txt", s_baseFilesCache.cache);
+	LineIterator lineIter("Data\\uio\\supported.txt", s_inclTempBuffer.cache);
 	memcpy(publicPath, "Data\\uio\\public\\*.txt", 22);
 	DirectoryIterator pubIter(publicPath);
 
@@ -1520,7 +1683,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 						{
 							for (auto inclIter = findTile().Begin(); inclIter; ++inclIter)
 							{
-								s_baseFilesCache.WriteInclude(*inclIter);
+								s_inclTempBuffer.WriteInclude(*inclIter);
 								PrintLog("\t+ Injecting '%s' @ %s\n", *inclIter, tileName);
 							}
 							findTile.Remove();
@@ -1531,7 +1694,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 
 					if (menuIter().Empty())
 					{
-						s_baseFilesCache.Write(bufferPtr, fileData->length - (bufferPtr - fileData->data));
+						s_inclTempBuffer.Write(bufferPtr, fileData->length - (bufferPtr - fileData->data));
 						break;
 					}
 				}
@@ -1569,7 +1732,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			}
 
 			endPtr++;
-			s_baseFilesCache.Write(bufferPtr, endPtr - bufferPtr);
+			s_inclTempBuffer.Write(bufferPtr, endPtr - bufferPtr);
 			bufferPtr = endPtr;
 		}
 
@@ -1584,7 +1747,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			{
 				for (auto inclIter = notFound().Begin(); inclIter; ++inclIter)
 				{
-					s_baseFilesCache.WriteInclude(*inclIter);
+					s_inclTempBuffer.WriteInclude(*inclIter);
 					PrintLog("\t+ Injecting '%s' @ EoF\n", *inclIter);
 				}
 			}
@@ -2258,7 +2421,10 @@ bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info)
 bool NVSEPlugin_Load(const NVSEInterface *nvse)
 {
 	_memcpy = memcpy;
-	_memmove = memmove;
+	_strstr = strstr;
+
+	s_baseFilesCache.Init(0x80000);
+	s_inclTempBuffer.Init(0x100000);
 
 	if (GetPrivateProfileInt("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
 	{
@@ -2274,7 +2440,6 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 	SAFE_WRITE_BUF(0x70A049, "\xC7\x45\xFC\xFF\xFF\xFF\xFF\x68\x5C\xA0\x70\x00");
 	WriteRelJump(0x70A055, (UInt32)UIOLoad);
 	WriteRelCall(0xA01B87, (UInt32)ResolveXMLFileHook);
-	WriteRelCall(0xA02F44, (UInt32)GetXMLFileDataHook);
 
 	UInt8 instrBuffer[43] =
 	{
