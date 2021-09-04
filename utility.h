@@ -17,14 +17,13 @@ typedef unsigned long long UInt64;
 typedef signed long long SInt64;
 
 typedef void* (__cdecl *memcpy_t)(void*, const void*, size_t);
-extern memcpy_t _memcpy, _memmove;
+extern memcpy_t _memcpy;
 
 #define ADDR_GameHeapAlloc			0xAA3E40
 #define ADDR_GameHeapFree			0xAA4060
 #define ADDR_CreateTileFromXML		0xA01B00
 #define ADDR_GetXMLFileData			0xA1CE70
 #define ADDR_GetAvailableLinkedNode	0x43A010
-#define ADDR_ResolveXMLIncludes		0xA02D40
 #define ADDR_InitXMLtoTileData		0xA0AC80
 #define ADDR_strcmp					0xEC6DA0
 #define ADDR_GetRandomInt			0xAA5230
