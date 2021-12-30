@@ -476,7 +476,7 @@ __declspec(naked) char* __fastcall CopyString(const char *key)
 
 bool __fastcall FileExists(const char *path)
 {
-	UInt32 attr = GetFileAttributes(path);
+	UInt32 attr = GetFileAttributesA(path);
 	return (attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
