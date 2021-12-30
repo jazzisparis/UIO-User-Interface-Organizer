@@ -126,10 +126,10 @@ bool __fastcall FileExists(const char *path);
 class DirectoryIterator
 {
 	HANDLE				handle;
-	WIN32_FIND_DATA		fndData;
+	WIN32_FIND_DATAA		fndData;
 
 public:
-	DirectoryIterator(const char *path) : handle(FindFirstFile(path, &fndData)) {}
+	DirectoryIterator(const char *path) : handle(FindFirstFileA(path, &fndData)) {}
 	~DirectoryIterator() {Close();}
 
 	bool IsFile() const {return !(fndData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);}
@@ -151,7 +151,7 @@ public:
 
 	explicit operator bool() const {return handle != INVALID_HANDLE_VALUE;}
 	const char* operator*() const {return fndData.cFileName;}
-	void operator++() {if (!FindNextFile(handle, &fndData)) Close();}
+	void operator++() {if (!FindNextFileA(handle, &fndData)) Close();}
 };
 
 class FileStream

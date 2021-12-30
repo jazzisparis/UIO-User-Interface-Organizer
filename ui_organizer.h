@@ -1462,7 +1462,7 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 	s_cachedParsedData.Emplace(kTempXMLFile, false, false);
 
 	bufferPtr = s_inclTempBuffer.cache;
-	if (GetPrivateProfileString("General", "sDoNotCache", nullptr, bufferPtr, 0x4000, "Data\\uio\\settings.ini"))
+	if (GetPrivateProfileStringA("General", "sDoNotCache", nullptr, bufferPtr, 0x4000, "Data\\uio\\settings.ini"))
 	{
 		for (; *bufferPtr; bufferPtr = delim)
 		{
@@ -1517,6 +1517,9 @@ void __fastcall UIOLoad(InterfaceManager *interfaceMgr)
 			continue;
 		}
 
+		menuFile = nullptr;
+		tileName = nullptr;
+		pathStr = nullptr;
 		condLine = false;
 		do
 		{
@@ -2426,13 +2429,13 @@ bool NVSEPlugin_Load(const NVSEInterface *nvse)
 	s_baseFilesCache.Init(0x80000);
 	s_inclTempBuffer.Init(0x100000);
 
-	if (GetPrivateProfileInt("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
+	if (GetPrivateProfileIntA("General", "bDebugMode", 0, "Data\\uio\\settings.ini"))
 	{
 		s_debugMode = true;
 		s_logPath = "uio_debug\\uio_debug.log";
 		PrintLog("Debug mode enabled > Log moved to %s", s_logPath);
 		s_log.Close();
-		CreateDirectory(s_debugPath, NULL);
+		CreateDirectoryA(s_debugPath, NULL);
 		s_log.OpenWrite(s_logPath);
 	}
 	PrintLog("UI Organizer v2.30\nRuntime version = %08X\nNVSE version = %08X\n\n", nvse->runtimeVersion, nvse->nvseVersion);
